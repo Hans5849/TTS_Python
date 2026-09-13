@@ -234,9 +234,22 @@ subfolders; known cache folders, hidden folders, and virtual environments are
 excluded. README and requirements files are excluded from automatic discovery.
 Explicitly named files are not filtered this way.
 
-Files are processed **sequentially**. They are not concatenated into one
-cross-course recording, and this uses individual speech requests, not a separate
-asynchronous Batch API job.
+Files are processed sequentially by default. To process separate files at the
+same time, use a conservative worker count such as:
+
+```bash
+python Audioconversion_generic_v3.py --all --file-workers 3 --output-dir ./audio
+```
+
+Each worker handles one complete file while the chunks within that file remain
+ordered and sequential. Files are never concatenated into one cross-course
+recording, and this uses concurrent individual speech requests, not a separate
+asynchronous Batch API job. All workers share the process-wide `--rpm` request
+start limit. More workers can improve throughput while requests or FFmpeg jobs
+overlap, but they can also increase API concurrency, memory/CPU use, and the
+chance of rate-limit responses. Start with 2 or 3 and raise the value only when
+the configured endpoint and computer can sustain it. The default
+`--file-workers 1` preserves the original behavior.
 
 ### Optional `tts` shortcut
 

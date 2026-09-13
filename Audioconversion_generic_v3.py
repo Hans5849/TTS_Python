@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import codecs
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -33,6 +34,7 @@ import subprocess
 import struct
 import sys
 import tempfile
+import threading
 import time
 from typing import Any, Callable, Iterator
 import uuid
@@ -62,7 +64,7 @@ SETTINGS = {
     "headings", "markdown_headings", "pronunciations", "chapters", "normalize",
     "loudness", "true_peak", "lra", "bitrate", "section_pause", "attempts",
     "read_timeout", "request_deadline", "process_timeout", "retry_budget", "rpm",
-    "encoding",
+    "file_workers", "encoding",
 }
 DOTENV_KEYS = {"OPENAI_API_KEY", "OPENAI_BASE_URL"}
 
@@ -827,24 +829,26 @@ class LazyClient:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.client: Any = None
+        self.lock = threading.Lock()
 
     def get(self) -> Any:
         if self.args.assemble_only:
             raise TTSError("--assemble-only cannot generate missing chunks.")
-        if self.client is None:
-            if not os.environ.get("OPENAI_API_KEY", "").strip():
-                raise FatalAPIError("OPENAI_API_KEY is missing. Set it in this terminal; never put it in the script.")
-            try:
-                from openai import OpenAI
-                import httpx2
-            except ImportError as exc:
-                raise FatalAPIError("Install the SDK in your virtual environment: python -m pip install openai") from exc
-            self.client = OpenAI(max_retries=0, timeout=httpx2.Timeout(
-                connect=15.0,
-                read=self.args.read_timeout,
-                write=30.0,
-                pool=30.0,
-            ))
+        with self.lock:
+            if self.client is None:
+                if not os.environ.get("OPENAI_API_KEY", "").strip():
+                    raise FatalAPIError("OPENAI_API_KEY is missing. Set it in this terminal; never put it in the script.")
+                try:
+                    from openai import OpenAI
+                    import httpx2
+                except ImportError as exc:
+                    raise FatalAPIError("Install the SDK in your virtual environment: python -m pip install openai") from exc
+                self.client = OpenAI(max_retries=0, timeout=httpx2.Timeout(
+                    connect=15.0,
+                    read=self.args.read_timeout,
+                    write=30.0,
+                    pool=30.0,
+                ))
         return self.client
 
     def close(self) -> None:
@@ -856,14 +860,18 @@ class RateLimiter:
     def __init__(self, rpm: float):
         self.interval = 60.0 / rpm
         self.last: float | None = None
+        self.lock = threading.Lock()
 
     def wait(self) -> None:
-        now = time.monotonic()
-        if self.last is not None:
-            delay = self.interval - (now - self.last)
-            if delay > 0:
-                time.sleep(delay)
-        self.last = time.monotonic()
+        # Serialize reservations so parallel files still share one process-wide
+        # request-start rate rather than each worker enforcing its own limit.
+        with self.lock:
+            now = time.monotonic()
+            if self.last is not None:
+                delay = self.interval - (now - self.last)
+                if delay > 0:
+                    time.sleep(delay)
+            self.last = time.monotonic()
 
 
 def error_kind(exc: Exception) -> str:
@@ -1479,7 +1487,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Streaming elapsed deadline checked between blocks; a blocked read is bounded by read-timeout.")
     p.add_argument("--retry-budget", type=float, default=900.0, help="Do not START a retry beyond this elapsed budget.")
     p.add_argument("--process-timeout", type=float, default=1800.0, help="Timeout for each FFmpeg/ffprobe operation.")
-    p.add_argument("--rpm", type=float, default=30.0, help="Maximum request starts per minute within this sequential process.")
+    p.add_argument("--rpm", type=float, default=30.0, help="Maximum request starts per minute shared by all file workers.")
+    p.add_argument("--file-workers", type=int, default=1,
+                   help="Process this many separate files concurrently; chunks within each file remain sequential.")
     p.add_argument("--stop-on-error", action="store_true", help="Stop batch on any file failure; auth/quota failures always stop it.")
     p.add_argument("--dry-run", action="store_true", help="Prepare and inspect only; no speech API calls or audio generation.")
     p.add_argument("--show-chunks", action="store_true", help="Show the exact text planned for each request.")
@@ -1498,7 +1508,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     for name in ("model", "voice", "instructions", "encoding", "token_counter", "headings"):
         if not isinstance(getattr(args, name), str):
             raise TTSError(f"{name} must be a string.")
-    for name in ("max_chars", "max_tokens", "attempts", "bitrate"):
+    for name in ("max_chars", "max_tokens", "attempts", "bitrate", "file_workers"):
         if type(getattr(args, name)) is not int:
             raise TTSError(f"{name} must be an integer.")
     for name in ("loudness", "true_peak", "lra", "section_pause", "read_timeout", "request_deadline",
@@ -1527,6 +1537,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         raise TTSError("Normalization targets are outside loudnorm's supported ranges.")
     if not 0 <= args.section_pause <= 5 or not 1 <= args.attempts <= 10 or not 0 < args.rpm <= 600:
         raise TTSError("Invalid section pause, attempts, or request rate.")
+    if not 1 <= args.file_workers <= 32:
+        raise TTSError("--file-workers must be between 1 and 32.")
     if any(getattr(args, name) <= 0 for name in ("read_timeout", "request_deadline", "retry_budget", "process_timeout")):
         raise TTSError("Timeouts must be positive.")
     try:
@@ -1540,6 +1552,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.all and args.input_files:
         raise TTSError("Use explicit input files OR --all, not both.")
     return args
+
+
+def _run_file(plan: Plan, paths: Paths, result: dict[str, Any], args: argparse.Namespace,
+              budget: TokenBudget, provider: LazyClient,
+              limiter: RateLimiter) -> tuple[Plan, Paths, dict[str, Any], BaseException | None]:
+    """Run one file and return its error so batch policy stays in the main thread."""
+    try:
+        process_plan(plan, paths, args, budget, provider, limiter, result)
+        error = None
+    except BaseException as exc:
+        error = exc
+    return plan, paths, result, error
+
+
+def _completed_file(future: Future[None], plan: Plan, paths: Paths,
+                    result: dict[str, Any]) -> tuple[Plan, Paths, dict[str, Any], BaseException | None]:
+    try:
+        future.result()
+        error = None
+    except BaseException as exc:
+        error = exc
+    return plan, paths, result, error
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1610,24 +1644,40 @@ def main(argv: list[str] | None = None) -> int:
     interrupted = False
     fatal = False
     try:
-        for plan, paths, result in zip(plans, layouts, results):
-            if plan is None:
-                continue
-            try:
-                process_plan(plan, paths, args, budget, provider, limiter, result)
-            except FatalAPIError:
-                fatal = True
-                break
-            except KeyboardInterrupt:
-                interrupted = True
-                break
-            except Exception as exc:
-                result.update({"status": "failed", "error": safe_error(exc)})
-                print(f"File failed; completed cache entries are preserved: {safe_error(exc)}")
-                if args.stop_on_error:
-                    break
-            finally:
+        jobs = [(plan, paths, result) for plan, paths, result in zip(plans, layouts, results)
+                if plan is not None]
+        if args.file_workers == 1:
+            completed_jobs: Iterator[tuple[Plan, Paths, dict[str, Any], BaseException | None]] = (
+                _run_file(plan, paths, result, args, budget, provider, limiter)
+                for plan, paths, result in jobs
+            )
+            executor = None
+        else:
+            executor = ThreadPoolExecutor(max_workers=args.file_workers, thread_name_prefix="tts-file")
+            futures: dict[Future[None], tuple[Plan, Paths, dict[str, Any]]] = {
+                executor.submit(process_plan, plan, paths, args, budget, provider, limiter, result):
+                (plan, paths, result) for plan, paths, result in jobs
+            }
+            completed_jobs = (_completed_file(future, *futures[future]) for future in as_completed(futures))
+        try:
+            for _plan, _paths, result, error in completed_jobs:
+                if error is not None:
+                    result.update({"status": "failed", "error": safe_error(error)})
+                    if isinstance(error, FatalAPIError):
+                        fatal = True
+                    elif isinstance(error, KeyboardInterrupt):
+                        interrupted = True
+                    else:
+                        print(f"File failed; completed cache entries are preserved: {safe_error(error)}")
+                    if fatal or interrupted or args.stop_on_error:
+                        if executor is not None:
+                            for future in futures:
+                                future.cancel()
+                        break
                 atomic_json(report_file, {"version": VERSION, "updated": utc_now(), "files": results})
+        finally:
+            if executor is not None:
+                executor.shutdown(wait=True, cancel_futures=fatal or interrupted or args.stop_on_error)
     finally:
         provider.close()
         for result in results:
