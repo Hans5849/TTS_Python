@@ -1,0 +1,54 @@
+name: Bug report
+description: Report reproducible incorrect behavior or a regression.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve the project. Never include an API key, private input text, or generated audio.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal command and sanitized input where possible.
+      placeholder: |
+        1. Run `python Audioconversion_generic_v3.py ...`
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12.7"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system
+      placeholder: Ubuntu 24.04, Windows 11 with WSL, macOS 15, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste relevant output from `--doctor` and the error. Remove credentials and private content first.
+      render: shell
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Sensitive-data check
+      options:
+        - label: I removed API keys, private source text, and generated audio from this report.
+          required: true

@@ -8,6 +8,14 @@ mathematical fact checker.
 The script preserves the source wording by default. It does not change playback
 speed or send a `speed` parameter to the speech API. Adjust speed in your player.
 
+## GitHub project workflow
+
+GitHub Actions runs the offline regression suite on every push and pull request
+against the supported Python versions. Dependency updates are proposed monthly
+by Dependabot. To report a problem or propose a change, use the repository's
+structured issue forms; development and data-safety guidance is in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## Upgrade an existing installation
 
 Keep the V2 script and its `_audio_parts` folders. Put the V3 script alongside
