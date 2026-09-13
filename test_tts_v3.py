@@ -110,6 +110,15 @@ class TextTests(unittest.TestCase):
             with self.assertRaisesRegex(tts.TTSError, "file-workers"):
                 arguments("--file-workers", value)
 
+    def test_file_workers_environment_and_cli_precedence(self):
+        with patch.dict(os.environ, {"TTS_FILE_WORKERS": "4"}):
+            self.assertEqual(arguments().file_workers, 4)
+            self.assertEqual(arguments("--file-workers", "2").file_workers, 2)
+        with patch.dict(os.environ, {"TTS_FILE_WORKERS": "many"}):
+            with self.assertRaisesRegex(tts.TTSError, "TTS_FILE_WORKERS"):
+                arguments()
+            self.assertEqual(arguments("--file-workers", "2").file_workers, 2)
+
     def test_main_processes_separate_files_concurrently(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
@@ -323,13 +332,14 @@ class TextTests(unittest.TestCase):
             root = Path(d)
             (root / ".env").write_text(
                 "# credentials\nexport OPENAI_API_KEY='file-key'\n"
-                'OPENAI_BASE_URL="https://example.com/v1"\nIGNORED=value\n'
+                'OPENAI_BASE_URL="https://example.com/v1"\nTTS_FILE_WORKERS=3\nIGNORED=value\n'
             )
             with patch.object(Path, "cwd", return_value=root), patch.dict(
                     os.environ, {"OPENAI_API_KEY": "shell-key"}, clear=True):
                 tts.load_dotenv(root)
                 self.assertEqual(os.environ["OPENAI_API_KEY"], "shell-key")
                 self.assertEqual(os.environ["OPENAI_BASE_URL"], "https://example.com/v1")
+                self.assertEqual(os.environ["TTS_FILE_WORKERS"], "3")
                 self.assertNotIn("IGNORED", os.environ)
 
     def test_dotenv_rejects_empty_supported_value(self):

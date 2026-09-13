@@ -66,7 +66,7 @@ SETTINGS = {
     "read_timeout", "request_deadline", "process_timeout", "retry_budget", "rpm",
     "file_workers", "encoding",
 }
-DOTENV_KEYS = {"OPENAI_API_KEY", "OPENAI_BASE_URL"}
+DOTENV_KEYS = {"OPENAI_API_KEY", "OPENAI_BASE_URL", "TTS_FILE_WORKERS"}
 
 
 class TTSError(Exception):
@@ -86,7 +86,7 @@ class AudioError(TTSError):
 
 
 def load_dotenv(script_dir: Path) -> None:
-    """Load supported credentials from .env without evaluating shell syntax.
+    """Load supported environment settings without evaluating shell syntax.
 
     The working-directory file has precedence over the script-directory file,
     while variables already present in the process environment have precedence
@@ -1425,9 +1425,10 @@ def doctor(args: argparse.Namespace) -> int:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    effective_argv = list(sys.argv[1:] if argv is None else argv)
     early = argparse.ArgumentParser(add_help=False)
     early.add_argument("--config")
-    known, _ = early.parse_known_args(argv)
+    known, _ = early.parse_known_args(effective_argv)
     config: dict[str, Any] = {}
     if known.config:
         config_path = Path(known.config).expanduser().resolve()
@@ -1442,6 +1443,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                 raise TTSError("Config pronunciations must be a filename or null.")
             p = Path(config["pronunciations"]).expanduser()
             config["pronunciations"] = str(p if p.is_absolute() else config_path.parent / p)
+    file_workers_default = 1
+    cli_sets_file_workers = any(
+        item == "--file-workers" or item.startswith("--file-workers=") for item in effective_argv
+    )
+    if "file_workers" not in config and not cli_sets_file_workers and "TTS_FILE_WORKERS" in os.environ:
+        try:
+            file_workers_default = int(os.environ["TTS_FILE_WORKERS"])
+        except ValueError as exc:
+            raise TTSError("TTS_FILE_WORKERS must be an integer between 1 and 32.") from exc
     p = argparse.ArgumentParser(description="Convert text documents to separate narrated MP3s. No speed control.",
                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("input_files", nargs="*", help="Text/Markdown files; omit for interactive multi-select.")
@@ -1488,15 +1498,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--retry-budget", type=float, default=900.0, help="Do not START a retry beyond this elapsed budget.")
     p.add_argument("--process-timeout", type=float, default=1800.0, help="Timeout for each FFmpeg/ffprobe operation.")
     p.add_argument("--rpm", type=float, default=30.0, help="Maximum request starts per minute shared by all file workers.")
-    p.add_argument("--file-workers", type=int, default=1,
-                   help="Process this many separate files concurrently; chunks within each file remain sequential.")
+    p.add_argument("--file-workers", type=int, default=file_workers_default,
+                   help="Process this many separate files concurrently; defaults to TTS_FILE_WORKERS or 1.")
     p.add_argument("--stop-on-error", action="store_true", help="Stop batch on any file failure; auth/quota failures always stop it.")
     p.add_argument("--dry-run", action="store_true", help="Prepare and inspect only; no speech API calls or audio generation.")
     p.add_argument("--show-chunks", action="store_true", help="Show the exact text planned for each request.")
     p.add_argument("--export-plan", action="store_true", help="Write prepared text/diff/plan during dry-run (always saved for real runs).")
     p.add_argument("--doctor", action="store_true", help="Check the local setup without contacting the speech API.")
     p.set_defaults(**config)
-    args = p.parse_args(argv)
+    args = p.parse_args(effective_argv)
     if args.instructions_file:
         args.instructions = Path(args.instructions_file).expanduser().read_text(encoding="utf-8-sig").strip()
     if args.no_cleanup:
