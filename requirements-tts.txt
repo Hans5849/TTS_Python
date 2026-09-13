@@ -1,0 +1,4 @@
+# Install inside the Python virtual environment.
+openai
+# Recommended for efficient local token estimates; byte fallback exists without it.
+tiktoken

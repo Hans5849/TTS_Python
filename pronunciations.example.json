@@ -1,0 +1,16 @@
+{
+  "ENEE": "E N E E",
+  "DSP": "D S P",
+  "FIR": "F I R",
+  "IIR": "I I R",
+  "LTI": "L T I",
+  "ROC": "R O C",
+  "DTFT": "D T F T",
+  "DFT": "D F T",
+  "FFT": "F F T",
+  "SNR": "S N R",
+  "GHz": "gigahertz",
+  "MHz": "megahertz",
+  "kHz": "kilohertz",
+  "dB": "decibels"
+}
