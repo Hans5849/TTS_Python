@@ -64,6 +64,7 @@ SETTINGS = {
     "read_timeout", "request_deadline", "process_timeout", "retry_budget", "rpm",
     "encoding",
 }
+DOTENV_KEYS = {"OPENAI_API_KEY", "OPENAI_BASE_URL"}
 
 
 class TTSError(Exception):
@@ -80,6 +81,48 @@ class InputTooLong(TTSError):
 
 class AudioError(TTSError):
     pass
+
+
+def load_dotenv(script_dir: Path) -> None:
+    """Load supported credentials from .env without evaluating shell syntax.
+
+    The working-directory file has precedence over the script-directory file,
+    while variables already present in the process environment have precedence
+    over both.
+    """
+    candidates = [Path.cwd() / ".env", script_dir / ".env"]
+    seen: set[Path] = set()
+    for candidate in candidates:
+        candidate = candidate.resolve()
+        if candidate in seen or not candidate.is_file():
+            continue
+        seen.add(candidate)
+        try:
+            lines = candidate.read_text(encoding="utf-8-sig").splitlines()
+        except (OSError, UnicodeError) as exc:
+            raise TTSError(f"Cannot read environment file {candidate}: {exc}") from exc
+        for line_number, raw in enumerate(lines, 1):
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            match = re.fullmatch(
+                r"(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)", stripped
+            )
+            if not match:
+                if any(key in stripped for key in DOTENV_KEYS):
+                    raise TTSError(f"Malformed supported entry in {candidate}:{line_number}; use NAME=value.")
+                continue
+            key, value = match.groups()
+            if key not in DOTENV_KEYS:
+                continue
+            value = value.strip()
+            if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
+                value = value[1:-1]
+            elif value.startswith(("\"", "'")) or value.endswith(("\"", "'")):
+                raise TTSError(f"Malformed quoted {key} in {candidate}:{line_number}.")
+            if not value:
+                raise TTSError(f"{key} is empty in {candidate}:{line_number}; provide a value or remove the entry.")
+            os.environ.setdefault(key, value)
 
 
 def utc_now() -> str:
@@ -1500,11 +1543,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    script_dir = Path(__file__).resolve().parent
+    load_dotenv(script_dir)
     args = parse_args(argv)
     if args.doctor:
         return doctor(args)
     started = time.monotonic()
-    script_dir = Path(__file__).resolve().parent
+    if not args.output and not args.output_dir:
+        args.output_dir = str(script_dir / "audio")
     sources = resolve_inputs(args, script_dir)
     if not sources:
         print("No files selected.")

@@ -16,10 +16,12 @@ by Dependabot. To report a problem or propose a change, use the repository's
 structured issue forms; development and data-safety guidance is in
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## Upgrade an existing installation
+## Upgrade to the unified V3 workflow
 
-Keep the V2 script and its `_audio_parts` folders. Put the V3 script alongside
-your notes, then use the existing Python virtual environment:
+V3 is the sole supported script and incorporates the relevant setup, selection,
+batch conversion, and resumable-cache workflow from V2. Keep old V2 recordings
+only as archives; do not run the V2 script for new work. Put the V3 script in
+your TTS directory, then use the existing Python virtual environment:
 
 ```bash
 cd ~/tts
@@ -43,7 +45,7 @@ Run the conversion:
 python Audioconversion_generic_v3.py
 ```
 
-For a clean separation from existing V2 outputs:
+To explicitly choose a different unified output directory:
 
 ```bash
 python Audioconversion_generic_v3.py --output-dir ./audio_v3
@@ -55,8 +57,9 @@ uses the speech API again. It never deletes the V2 cache. An existing final MP3
 not owned by V3 is protected: choose another output directory, or deliberately
 use `--overwrite` to replace it.
 
-Keep the same `--output-dir` and generation settings on later runs so V3 finds
-the same completed outputs and cache.
+By default V3 keeps every generated artifact in `audio/` beside the script so
+the complete result can be copied as one directory. Keep the same explicit
+`--output-dir` and generation settings on later runs if you override that default.
 
 ## New setup: WSL with Debian/Ubuntu-style package management
 
@@ -99,6 +102,31 @@ ffprobe -version | head -n 1
 `which python` should show a path inside `~/tts/.venv/bin/`.
 
 ### API key
+
+Copy the safe template to a private `.env` file beside the script:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` so it contains:
+
+```dotenv
+OPENAI_API_KEY=your-api-key-here
+```
+
+For a compatible custom endpoint it may also contain:
+
+```dotenv
+OPENAI_BASE_URL=https://example.com/v1
+```
+
+The loader checks the current working directory first and the script directory
+second. It reads only these two names, supports an optional `export` prefix and
+quoted values, and never executes the file as shell code. Blank lines and comment
+lines are ignored. A value already exported in the shell takes precedence. The
+real `.env` is ignored by Git and must never be committed; `.env.example` is safe
+to commit because it contains no credential.
 
 An existing `OPENAI_API_KEY` environment variable continues to work. Do not put a
 key in the Python script, pronunciation dictionary, or JSON settings file.
@@ -221,6 +249,15 @@ alias tts='cd ~/tts && .venv/bin/python Audioconversion_generic_v3.py'
 Reload with `source ~/.bashrc`. Then `tts`, `tts --dry-run`, and
 `tts --output-dir ./audio_v3` work without manual virtual-environment activation.
 
+When finished, exit an activated Python virtual environment with:
+
+```bash
+deactivate
+```
+
+This deactivates the environment for the current shell; it does **not** delete
+the `.venv` directory or its installed packages.
+
 ## What changed from V2
 
 ### Source preservation
@@ -329,35 +366,34 @@ atomic replacement protect previous finished recordings. All new outputs are
 validated before publication, but publication of a final MP3 plus multiple
 chapter files is **not** a single filesystem transaction.
 
-## Outputs
+## Unified outputs
 
-Without `--output-dir`, outputs are written next to each source:
+Without `--output` or `--output-dir`, `main()` selects the `audio/` directory
+beside `Audioconversion_generic_v3.py`, even when a source file is elsewhere.
+For `notes.txt`, the copy-and-paste-ready layout is:
 
 ```text
-notes_a_review_FINAL.mp3
-notes_a_review_audio_v3/
-    owner.json
-    current_plan.json
-    completed.json
-    progress.json
-    last_run.json
-    run.log
-    cache/
-        <request-hash>.wav
-        <request-hash>.json
-        <request-hash>.split.json       # only after a length rejection
-    plans/
-        <plan-hash>/
-            prepared.txt
-            changes.diff
-            plan.json
+audio/
+├── notes_FINAL.mp3
+├── notes_audio_v3/
+│   ├── cache/
+│   ├── plans/
+│   ├── completed.json
+│   ├── current_plan.json
+│   ├── owner.json
+│   ├── progress.json
+│   ├── last_run.json
+│   └── run.log
+├── notes_FINAL_chapters/               # created with --chapters
+└── .tts_runs/                          # batch reports for real runs
 ```
 
-The complete batch report is stored in `.tts_runs/` under `--output-dir`, or the
-current directory when no output directory was supplied. Reports include failed
-and not-run files as well as partial progress. No credentials are intentionally
-written to logs. Prepared text and reports may contain private course material;
-keep the output directory private when appropriate.
+`paths_for()` only calculates the final MP3, work, and chapter paths from the
+selected output base; directory creation occurs when files and locks are written.
+The complete batch report is stored in `.tts_runs/` under the selected output
+directory. Reports include failed and not-run files as well as partial progress.
+No credentials are intentionally written to logs. Prepared text and reports may
+contain private course material; keep the output directory private when appropriate.
 
 A file with a matching fingerprint and validated final output is skipped without
 making a speech request. A corrupt/missing cache chunk is regenerated when it is
