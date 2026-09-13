@@ -122,8 +122,8 @@ OPENAI_BASE_URL=https://example.com/v1
 ```
 
 The loader checks the current working directory first and the script directory
-second. It reads only `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and
-`TTS_FILE_WORKERS`, supports an optional `export` prefix and
+second. It reads only `OPENAI_API_KEY`, `OPENAI_BASE_URL`,
+`TTS_FILE_WORKERS`, and `TTS_CHAPTERS`, supports an optional `export` prefix and
 quoted values, and never executes the file as shell code. Blank lines and comment
 lines are ignored. A value already exported in the shell takes precedence. The
 real `.env` is ignored by Git and must never be committed; `.env.example` is safe
@@ -429,6 +429,27 @@ reassembly. Deleting them removes the ability to rebuild or revise the recording
 without further speech API calls.
 
 ## Optional chapter exports
+
+To control chapter exports from `.env`, set:
+
+```dotenv
+TTS_CHAPTERS=true
+```
+
+Set it to `false` to disable chapter exports (the default). Values are
+case-insensitive; other values are rejected. Precedence is command-line
+`--chapters` / `--no-chapters`, then an explicit JSON config's `chapters`,
+then `TTS_CHAPTERS`, then the default. The process environment takes precedence
+over `.env` values.
+
+Chapters are detected from headings in each input text file: Markdown headings,
+standalone uppercase headings, and recognized labels such as Introduction and
+Summary. No separate chapter list is required. Detection is heuristic, not
+semantic topic detection; text without recognized headings becomes one chapter.
+Use `--chapters --dry-run --show-chunks` to inspect the planned sections before
+synthesis. `--headings none` disables section detection even with chapters enabled.
+
+You can also enable chapter exports for a single run:
 
 ```bash
 python Audioconversion_generic_v3.py --chapters

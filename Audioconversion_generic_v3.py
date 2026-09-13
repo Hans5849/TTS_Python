@@ -66,7 +66,7 @@ SETTINGS = {
     "read_timeout", "request_deadline", "process_timeout", "retry_budget", "rpm",
     "file_workers", "encoding",
 }
-DOTENV_KEYS = {"OPENAI_API_KEY", "OPENAI_BASE_URL", "TTS_FILE_WORKERS"}
+DOTENV_KEYS = {"OPENAI_API_KEY", "OPENAI_BASE_URL", "TTS_FILE_WORKERS", "TTS_CHAPTERS"}
 
 
 class TTSError(Exception):
@@ -1443,6 +1443,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                 raise TTSError("Config pronunciations must be a filename or null.")
             p = Path(config["pronunciations"]).expanduser()
             config["pronunciations"] = str(p if p.is_absolute() else config_path.parent / p)
+    chapters_default = False
+    cli_sets_chapters = any(item in {"--chapters", "--no-chapters"} for item in effective_argv)
+    if "chapters" not in config and not cli_sets_chapters and "TTS_CHAPTERS" in os.environ:
+        value = os.environ["TTS_CHAPTERS"].strip().lower()
+        if value not in {"true", "false"}:
+            raise TTSError("TTS_CHAPTERS must be true or false.")
+        chapters_default = value == "true"
     file_workers_default = 1
     cli_sets_file_workers = any(
         item == "--file-workers" or item.startswith("--file-workers=") for item in effective_argv
@@ -1472,8 +1479,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--no-cleanup", action="store_true", help="Compatibility flag: preserve text (already the default).")
     p.add_argument("--pronunciations", help="Optional case-sensitive whole-token replacement JSON; never auto-loaded.")
     p.add_argument("--encoding", default="utf-8-sig", help="Explicit source encoding; no silent legacy-encoding fallback.")
-    p.add_argument("--chapters", action=argparse.BooleanOptionalAction, default=False,
-                   help="Align requests to sections and also export section MP3s and playlist; more API requests.")
+    p.add_argument("--chapters", action=argparse.BooleanOptionalAction, default=chapters_default,
+                   help="Export detected sections as chapter MP3s and playlist; defaults to TTS_CHAPTERS or false; more API requests.")
     p.add_argument("--normalize", action=argparse.BooleanOptionalAction, default=True,
                    help="Two-pass whole-recording loudness normalization, not per-chunk leveling.")
     p.add_argument("--loudness", type=float, default=-19.0, help="Requested mono integrated loudness (LUFS).")

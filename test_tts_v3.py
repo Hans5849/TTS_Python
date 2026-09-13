@@ -103,6 +103,44 @@ class NoWait:
 
 
 class TextTests(unittest.TestCase):
+    def test_chapters_environment_and_overrides(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(arguments().chapters)
+        for value, expected in (("true", True), ("false", False), (" TRUE ", True)):
+            with self.subTest(value=value), patch.dict(os.environ, {"TTS_CHAPTERS": value}):
+                self.assertEqual(arguments().chapters, expected)
+                self.assertTrue(arguments("--chapters").chapters)
+                self.assertFalse(arguments("--no-chapters").chapters)
+        with tempfile.TemporaryDirectory() as d:
+            config = Path(d) / "config.json"
+            for value in ("true", "false", "invalid", ""):
+                with patch.dict(os.environ, {"TTS_CHAPTERS": value}):
+                    if value in {"invalid", ""}:
+                        with self.assertRaisesRegex(tts.TTSError, "TTS_CHAPTERS"):
+                            arguments()
+                    self.assertTrue(arguments("--chapters").chapters)
+                    self.assertFalse(arguments("--no-chapters").chapters)
+                    for enabled in (True, False):
+                        config.write_text(json.dumps({"chapters": enabled}))
+                        self.assertEqual(arguments("--config", str(config)).chapters, enabled)
+                        self.assertFalse(arguments("--config", str(config), "--no-chapters").chapters)
+                        self.assertTrue(arguments("--config", str(config), "--chapters").chapters)
+
+    def test_dotenv_chapters_detects_source_sections(self):
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, {}, clear=True):
+            root = Path(d)
+            (root / ".env").write_text("TTS_CHAPTERS=true\n")
+            source = root / "notes.txt"
+            source.write_text("Introduction\n\nOpening words.\n\nMAIN TOPIC\n\nDetails.\n\nSummary\n\nClosing words.")
+            with patch.object(Path, "cwd", return_value=root):
+                tts.load_dotenv(root)
+            args = arguments()
+            sections = tts.detect_sections(source.read_text(), args.headings)
+            self.assertEqual([s.title for s in sections], ["Introduction", "MAIN TOPIC", "Summary"])
+            chunks = tts.make_chunks(sections, tts.TokenBudget(args), args.chapters)
+            self.assertEqual(len(chunks), 3)
+            self.assertEqual(len(tts.make_chunks(sections, tts.TokenBudget(args), False)), 1)
+
     def test_file_workers_validation(self):
         self.assertEqual(arguments().file_workers, 1)
         self.assertEqual(arguments("--file-workers", "3").file_workers, 3)
