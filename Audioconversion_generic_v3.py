@@ -7,7 +7,7 @@ There is deliberately no playback-speed or TTS-speed option.
 
 Install in a virtual environment: python -m pip install openai tiktoken
 System requirements: ffmpeg (with libmp3lame) and ffprobe on PATH.
-Run --help or consult README_TTS_V3.md. --dry-run never calls the speech API.
+Run --help or consult README.md. --dry-run never calls the speech API.
 """
 from __future__ import annotations
 
