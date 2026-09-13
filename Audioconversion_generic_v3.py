@@ -38,7 +38,7 @@ from typing import Any, Callable, Iterator
 import uuid
 import wave
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 SCHEMA = 3
 SAMPLE_RATE = 24000
 CHANNELS = 1
@@ -111,6 +111,45 @@ def safe_error(exc: BaseException) -> str:
         message = message.replace(key, "[REDACTED]")
     message = re.sub(r"\bsk-[A-Za-z0-9_-]+", "[REDACTED]", message)
     return message[:1600]
+
+
+def load_dotenv(script_dir: Path) -> Path | None:
+    """Load API connection settings from .env without replacing shell values.
+
+    The current directory is checked first, followed by the script directory.
+    Only the two settings used to connect to OpenAI are accepted; this is not a
+    general-purpose shell-file parser and it never executes file contents.
+    """
+    candidates = [Path.cwd() / ".env", script_dir / ".env"]
+    seen: set[Path] = set()
+    for candidate in candidates:
+        candidate = candidate.resolve()
+        if candidate in seen or not candidate.is_file():
+            continue
+        seen.add(candidate)
+        try:
+            lines = candidate.read_text(encoding="utf-8-sig").splitlines()
+        except (OSError, UnicodeError) as exc:
+            raise TTSError(f"Cannot read environment file: {candidate}") from exc
+        for number, raw in enumerate(lines, 1):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].lstrip()
+            if "=" not in line:
+                raise TTSError(f"Invalid .env entry at {candidate}:{number}; expected NAME=value.")
+            name, value = line.split("=", 1)
+            name, value = name.strip(), value.strip()
+            if name not in {"OPENAI_API_KEY", "OPENAI_BASE_URL"}:
+                continue
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                value = value[1:-1]
+            if not value:
+                raise TTSError(f"{name} is empty in {candidate}.")
+            os.environ.setdefault(name, value)
+        return candidate
+    return None
 
 
 def atomic_text(path: Path, text: str) -> None:
@@ -607,7 +646,9 @@ def path_key(path: Path) -> str:
 
 
 def paths_for(source: Path, args: argparse.Namespace) -> Paths:
-    base = Path(args.output_dir).expanduser().resolve() if args.output_dir else source.parent
+    # Keep generated recordings and their resumable caches out of the input
+    # directory. This makes the complete output set easy to copy as one folder.
+    base = Path(args.output_dir).expanduser().resolve() if args.output_dir else source.parent / "audio"
     final = Path(args.output).expanduser().absolute() if args.output else base / f"{source.stem}_FINAL.mp3"
     if final.suffix.lower() != ".mp3":
         raise TTSError("--output must end in .mp3.")
@@ -1423,8 +1464,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Extra silence at request boundaries that begin a new section; internal pauses are model-controlled.")
     out = p.add_mutually_exclusive_group()
     out.add_argument("--output", help="Final MP3 path for one source only.")
-    out.add_argument("--output-dir", help="Directory for all outputs and per-source V3 caches.")
-    p.add_argument("--overwrite", action="store_true", help="Allow replacing preexisting outputs not owned by V3 (such as V2 MP3s).")
+    out.add_argument("--output-dir", help="Directory for all outputs and per-source resumable caches.")
+    p.add_argument("--overwrite", action="store_true", help="Allow replacing preexisting outputs not owned by this script.")
     p.add_argument("--adopt-moved-cache", action="store_true", help="Explicitly transfer job ownership after moving the whole project.")
     p.add_argument("--restart", action="store_true", help="Regenerate requested chunks (paid) but do not delete caches first.")
     p.add_argument("--rebuild", action="store_true", help="Reassemble even when completed output matches; reuse valid cached chunks.")
@@ -1500,22 +1541,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    script_dir = Path(__file__).resolve().parent
+    load_dotenv(script_dir)
     args = parse_args(argv)
     if args.doctor:
         return doctor(args)
     started = time.monotonic()
-    script_dir = Path(__file__).resolve().parent
     sources = resolve_inputs(args, script_dir)
     if not sources:
         print("No files selected.")
         return 0
     if args.output and len(sources) != 1:
         raise TTSError("--output requires exactly one source; use --output-dir for a batch.")
+    if not args.output and not args.output_dir:
+        args.output_dir = str(script_dir / "audio")
     layouts = [paths_for(source, args) for source in sources]
     collision_check(sources, layouts, args)
     if not args.dry_run:
         dependency_check(args)
-        # Check every output BEFORE any API request, including collision with V2 finals.
+        # Check every output BEFORE any API request, including older finals.
         for paths in layouts:
             ensure_output_allowed(paths, args)
     budget = TokenBudget(args)
@@ -1555,7 +1599,7 @@ def main(argv: list[str] | None = None) -> int:
                 result.update({"status": "dry-run", "planned_chunks": len(plan.chunks)})
         print("\nDry run complete. No speech API calls were made.")
         return 1 if any(r["status"] == "failed" for r in results) else 0
-    root = Path(args.output_dir).expanduser().resolve() if args.output_dir else Path.cwd()
+    root = Path(args.output_dir).expanduser().resolve() if args.output_dir else script_dir / "audio"
     report_dir = root / ".tts_runs"
     report_file = report_dir / (datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8] + ".json")
     report_dir.mkdir(parents=True, exist_ok=True)

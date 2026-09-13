@@ -1,4 +1,4 @@
-# Text-to-Speech V3: setup, upgrade, and use
+# Text-to-Speech: setup and use
 
 `Audioconversion_generic_v3.py` converts one or more `.txt` or `.md` files into
 **separate MP3 recordings**. It is designed for lecture reviews, read-aheads,
@@ -16,10 +16,11 @@ by Dependabot. To report a problem or propose a change, use the repository's
 structured issue forms; development and data-safety guidance is in
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## Upgrade an existing installation
+## Update an existing installation
 
-Keep the V2 script and its `_audio_parts` folders. Put the V3 script alongside
-your notes, then use the existing Python virtual environment:
+`Audioconversion_generic_v3.py` is the unified script and replaces the older
+versions. Put it alongside your notes, then use the existing Python virtual
+environment:
 
 ```bash
 cd ~/tts
@@ -43,20 +44,12 @@ Run the conversion:
 python Audioconversion_generic_v3.py
 ```
 
-For a clean separation from existing V2 outputs:
-
-```bash
-python Audioconversion_generic_v3.py --output-dir ./audio_v3
-```
-
-**V2 audio is not imported into the V3 cache.** V3 changes the request boundaries,
-narration instructions, and audio pipeline. The first V3 conversion therefore
-uses the speech API again. It never deletes the V2 cache. An existing final MP3
-not owned by V3 is protected: choose another output directory, or deliberately
-use `--overwrite` to replace it.
-
-Keep the same `--output-dir` and generation settings on later runs so V3 finds
-the same completed outputs and cache.
+By default all finished recordings, resumable caches, plans, and reports go into
+the `audio/` subfolder beside the script. Copy that one folder when you
+want to move the complete output set. Existing audio not owned by this script is
+protected; use a different `--output-dir`, or deliberately use `--overwrite`.
+Keep the same output location and generation settings on later runs so the
+script finds the same completed outputs and cache.
 
 ## New setup: WSL with Debian/Ubuntu-style package management
 
@@ -98,10 +91,33 @@ ffprobe -version | head -n 1
 
 `which python` should show a path inside `~/tts/.venv/bin/`.
 
-### API key
+### API key in `.env` (recommended)
 
-An existing `OPENAI_API_KEY` environment variable continues to work. Do not put a
-key in the Python script, pronunciation dictionary, or JSON settings file.
+Copy the provided template and edit the private `.env` file:
+
+```bash
+cd ~/tts
+cp .env.example .env
+chmod 600 .env
+nano .env
+```
+
+Set the line to `OPENAI_API_KEY=your_actual_key` with no spaces around `=`. The
+script automatically reads `.env` from the directory where you run it, then from
+the directory containing the script. It does not overwrite a value already set
+in the shell. `.env` is ignored by Git; never commit, paste, or share it. The
+optional `OPENAI_BASE_URL` shown in the template is only for a compatible custom
+endpoint and should normally remain commented out.
+
+Check that the script can see the key without displaying it:
+
+```bash
+python Audioconversion_generic_v3.py --doctor
+```
+
+An existing `OPENAI_API_KEY` shell environment variable also works and takes
+precedence over `.env`. Do not put a key in the Python script, pronunciation
+dictionary, or JSON settings file.
 
 For a temporary Bash session, enter the key without putting the key itself in
 shell history or displaying it:
@@ -173,7 +189,9 @@ tts/
     notes_b_preview.txt
     notes_c_review.txt
     notes_c_preview.txt
+    .env
     .venv/
+    audio/                         # created automatically
 ```
 
 Start with the interactive file picker:
@@ -210,18 +228,29 @@ Files are processed **sequentially**. They are not concatenated into one
 cross-course recording, and this uses individual speech requests, not a separate
 asynchronous Batch API job.
 
+When finished, leave the activated virtual environment with:
+
+```bash
+deactivate
+```
+
+The `(.venv)` prefix disappears from the prompt. This does not delete the
+environment; run `source .venv/bin/activate` when you next need it. Closing the
+terminal also exits the activated environment.
+
 ### Optional `tts` shortcut
 
-Replace an old V2 alias in `~/.bashrc`, rather than keeping two definitions:
+Replace any old `tts` alias in `~/.bashrc`, rather than keeping two definitions:
 
 ```bash
 alias tts='cd ~/tts && .venv/bin/python Audioconversion_generic_v3.py'
 ```
 
 Reload with `source ~/.bashrc`. Then `tts`, `tts --dry-run`, and
-`tts --output-dir ./audio_v3` work without manual virtual-environment activation.
+`tts --output-dir ./another_audio_folder` work without manual virtual-environment
+activation.
 
-## What changed from V2
+## Text preparation and behavior
 
 ### Source preservation
 
@@ -331,30 +360,33 @@ chapter files is **not** a single filesystem transaction.
 
 ## Outputs
 
-Without `--output-dir`, outputs are written next to each source:
+Without `--output-dir`, outputs are grouped in an `audio/` subfolder next to the
+script, rather than mixed with input documents:
 
 ```text
-notes_a_review_FINAL.mp3
-notes_a_review_audio_v3/
-    owner.json
-    current_plan.json
-    completed.json
-    progress.json
-    last_run.json
-    run.log
-    cache/
-        <request-hash>.wav
-        <request-hash>.json
-        <request-hash>.split.json       # only after a length rejection
-    plans/
-        <plan-hash>/
-            prepared.txt
-            changes.diff
-            plan.json
+audio/
+    notes_a_review_FINAL.mp3
+    notes_a_review_audio_v3/
+        owner.json
+        current_plan.json
+        completed.json
+        progress.json
+        last_run.json
+        run.log
+        cache/
+            <request-hash>.wav
+            <request-hash>.json
+            <request-hash>.split.json   # only after a length rejection
+        plans/
+            <plan-hash>/
+                prepared.txt
+                changes.diff
+                plan.json
+    .tts_runs/
 ```
 
-The complete batch report is stored in `.tts_runs/` under `--output-dir`, or the
-current directory when no output directory was supplied. Reports include failed
+The complete batch report is stored in `.tts_runs/` under the chosen output
+directory (the script's `audio/` folder by default). Reports include failed
 and not-run files as well as partial progress. No credentials are intentionally
 written to logs. Prepared text and reports may contain private course material;
 keep the output directory private when appropriate.
@@ -495,8 +527,8 @@ python -m pip install --upgrade openai tiktoken
 
 Or use `~/tts/.venv/bin/python` explicitly instead of activating the environment.
 
-**Existing output is not owned by this V3 job:** use `--output-dir ./audio_v3`, or
-explicitly choose `--overwrite` to replace an old V2 or other recording.
+**Existing output is not owned by this job:** use another `--output-dir`, or
+explicitly choose `--overwrite` to replace an old or externally created recording.
 
 **Too many small chunks / byte-budget warning:** install tiktoken and rerun a dry
 run. The tokenizer may need internet access on first use to download its data.

@@ -101,6 +101,25 @@ class NoWait:
 
 
 class TextTests(unittest.TestCase):
+    def test_dotenv_loads_key_without_overriding_shell(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / ".env").write_text("# local secret\nOPENAI_API_KEY='from-file'\n")
+            with patch.object(tts.Path, "cwd", return_value=root), \
+                    patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(tts.load_dotenv(root), root / ".env")
+                self.assertEqual(os.environ["OPENAI_API_KEY"], "from-file")
+                os.environ["OPENAI_API_KEY"] = "from-shell"
+                tts.load_dotenv(root)
+                self.assertEqual(os.environ["OPENAI_API_KEY"], "from-shell")
+
+    def test_default_outputs_are_grouped_in_audio_subfolder(self):
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / "notes.txt"
+            paths = tts.paths_for(source, arguments())
+            self.assertEqual(paths.final, Path(d) / "audio" / "notes_FINAL.mp3")
+            self.assertEqual(paths.work, Path(d) / "audio" / "notes_audio_v3")
+
     def test_tokenizer_path_with_local_test_double(self):
         class LocalEncoding:
             def encode(self, text, disallowed_special=()):
