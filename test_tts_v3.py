@@ -279,6 +279,44 @@ class TextTests(unittest.TestCase):
             self.assertNotIn("super-secret-key", tts.safe_error(Exception("Oops super-secret-key")))
         self.assertNotIn("sk-abcdef123", tts.safe_error(Exception("Oops sk-abcdef123")))
 
+    def test_dotenv_loads_supported_values_without_overwriting_environment(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / ".env").write_text(
+                "# credentials\nexport OPENAI_API_KEY='file-key'\n"
+                'OPENAI_BASE_URL="https://example.com/v1"\nIGNORED=value\n'
+            )
+            with patch.object(Path, "cwd", return_value=root), patch.dict(
+                    os.environ, {"OPENAI_API_KEY": "shell-key"}, clear=True):
+                tts.load_dotenv(root)
+                self.assertEqual(os.environ["OPENAI_API_KEY"], "shell-key")
+                self.assertEqual(os.environ["OPENAI_BASE_URL"], "https://example.com/v1")
+                self.assertNotIn("IGNORED", os.environ)
+
+    def test_dotenv_rejects_empty_supported_value(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / ".env").write_text("OPENAI_API_KEY=\n")
+            with patch.object(Path, "cwd", return_value=root), patch.dict(os.environ, {}, clear=True):
+                with self.assertRaisesRegex(tts.TTSError, "OPENAI_API_KEY is empty"):
+                    tts.load_dotenv(root)
+
+    def test_main_defaults_outputs_to_audio_beside_script(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            script_dir = root / "tts"
+            source_dir = root / "sources"
+            script_dir.mkdir()
+            source_dir.mkdir()
+            source = source_dir / "notes.txt"
+            source.write_text("A short test document.")
+            fake_script = script_dir / "Audioconversion_generic_v3.py"
+            with patch.object(tts, "__file__", str(fake_script)), redirect_stdout(io.StringIO()):
+                result = tts.main([str(source), "--dry-run", "--export-plan", "--token-counter", "bytes"])
+            self.assertEqual(result, 0)
+            self.assertTrue(list((script_dir / "audio" / "notes_audio_v3" / "plans").iterdir()))
+            self.assertFalse((source_dir / "audio").exists())
+
     def test_process_timeout(self):
         with self.assertRaises(tts.AudioError):
             tts.run_process([sys.executable, "-c", "import time; time.sleep(1)"], 0.01)
@@ -325,7 +363,9 @@ class AudioTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        (self.root / "audio").mkdir()
         self.args = arguments()
+        self.args.output_dir = str(self.root / "audio")
         self.budget = tts.TokenBudget(self.args)
         self.cache = self.root / "cache"
         self.reporter = tts.Reporter()
@@ -373,10 +413,10 @@ class AudioTests(unittest.TestCase):
         moved = self.root / "moved"
         moved.mkdir()
         shutil.move(str(plan.source), moved)
-        shutil.move(str(paths.work), moved)
-        shutil.move(str(paths.final), moved)
+        shutil.move(str(self.root / "audio"), moved)
         source = moved / "notes.txt"
-        a = arguments("--adopt-moved-cache", "--assemble-only")
+        a = arguments("--adopt-moved-cache", "--assemble-only",
+                      "--output-dir", str(moved / "audio"))
         new_plan = tts.prepare_plan(source, a, tts.TokenBudget(a), {})
         new_paths = tts.paths_for(source, a)
         tts.collision_check([source], [new_paths], a)
@@ -488,6 +528,7 @@ class AudioTests(unittest.TestCase):
     def test_unmanaged_final_requires_overwrite(self):
         plan = self.plan()
         paths = tts.paths_for(plan.source, self.args)
+        paths.final.parent.mkdir(parents=True, exist_ok=True)
         paths.final.write_bytes(b"old final")
         with self.assertRaises(tts.TTSError):
             tts.ensure_output_allowed(paths, self.args)
@@ -497,6 +538,7 @@ class AudioTests(unittest.TestCase):
     def test_final_assembly_failure_preserves_previous(self):
         plan = self.plan()
         paths = tts.paths_for(plan.source, self.args)
+        paths.final.parent.mkdir(parents=True, exist_ok=True)
         paths.final.write_bytes(b"previous good output")
         old = paths.final.read_bytes()
         parts = [self.obtain(c.text, FakeClient()) for c in plan.chunks]
@@ -545,7 +587,7 @@ class AudioTests(unittest.TestCase):
         self.assertGreater(report["cached"], 0)
 
     def test_malformed_completed_record_regenerates_no_crash(self):
-        a = arguments("--overwrite")
+        a = arguments("--overwrite", "--output-dir", str(self.root / "audio"))
         plan = self.plan(args=a)
         paths = tts.paths_for(plan.source, a)
         paths.work.mkdir()
