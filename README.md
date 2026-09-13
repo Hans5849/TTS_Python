@@ -122,7 +122,8 @@ OPENAI_BASE_URL=https://example.com/v1
 ```
 
 The loader checks the current working directory first and the script directory
-second. It reads only these two names, supports an optional `export` prefix and
+second. It reads only `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and
+`TTS_FILE_WORKERS`, supports an optional `export` prefix and
 quoted values, and never executes the file as shell code. Blank lines and comment
 lines are ignored. A value already exported in the shell takes precedence. The
 real `.env` is ignored by Git and must never be committed; `.env.example` is safe
@@ -234,9 +235,32 @@ subfolders; known cache folders, hidden folders, and virtual environments are
 excluded. README and requirements files are excluded from automatic discovery.
 Explicitly named files are not filtered this way.
 
-Files are processed **sequentially**. They are not concatenated into one
-cross-course recording, and this uses individual speech requests, not a separate
-asynchronous Batch API job.
+Files are processed sequentially by default. To process separate files at the
+same time, use a conservative worker count such as:
+
+```bash
+python Audioconversion_generic_v3.py --all --file-workers 3 --output-dir ./audio
+```
+
+Each worker handles one complete file while the chunks within that file remain
+ordered and sequential. Files are never concatenated into one cross-course
+recording, and this uses concurrent individual speech requests, not a separate
+asynchronous Batch API job. All workers share the process-wide `--rpm` request
+start limit. More workers can improve throughput while requests or FFmpeg jobs
+overlap, but they can also increase API concurrency, memory/CPU use, and the
+chance of rate-limit responses. Start with 2 or 3 and raise the value only when
+the configured endpoint and computer can sustain it. The default
+`--file-workers 1` preserves the original behavior.
+
+To make the worker count persistent, add it to the private `.env` file:
+
+```dotenv
+TTS_FILE_WORKERS=3
+```
+
+The `--file-workers` command-line option takes precedence over `.env`. A value in
+an explicit `--config` JSON file also overrides `.env`, while an explicit CLI
+option overrides both.
 
 ### Optional `tts` shortcut
 

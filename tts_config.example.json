@@ -20,5 +20,6 @@
   "process_timeout": 1800.0,
   "retry_budget": 900.0,
   "rpm": 30.0,
+  "file_workers": 1,
   "encoding": "utf-8-sig"
 }

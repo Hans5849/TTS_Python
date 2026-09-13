@@ -16,6 +16,8 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 import wave
@@ -101,6 +103,52 @@ class NoWait:
 
 
 class TextTests(unittest.TestCase):
+    def test_file_workers_validation(self):
+        self.assertEqual(arguments().file_workers, 1)
+        self.assertEqual(arguments("--file-workers", "3").file_workers, 3)
+        for value in ("0", "33"):
+            with self.assertRaisesRegex(tts.TTSError, "file-workers"):
+                arguments("--file-workers", value)
+
+    def test_file_workers_environment_and_cli_precedence(self):
+        with patch.dict(os.environ, {"TTS_FILE_WORKERS": "4"}):
+            self.assertEqual(arguments().file_workers, 4)
+            self.assertEqual(arguments("--file-workers", "2").file_workers, 2)
+        with patch.dict(os.environ, {"TTS_FILE_WORKERS": "many"}):
+            with self.assertRaisesRegex(tts.TTSError, "TTS_FILE_WORKERS"):
+                arguments()
+            self.assertEqual(arguments("--file-workers", "2").file_workers, 2)
+
+    def test_main_processes_separate_files_concurrently(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            sources = []
+            for index in range(3):
+                source = root / f"notes_{index}.txt"
+                source.write_text(f"Document {index}.")
+                sources.append(str(source))
+            active = 0
+            peak = 0
+            lock = threading.Lock()
+
+            def fake_process(plan, paths, args, budget, provider, limiter, report):
+                nonlocal active, peak
+                with lock:
+                    active += 1
+                    peak = max(peak, active)
+                time.sleep(0.05)
+                report.update({"status": "ok", "generated": 0, "cached": 0, "requests": 0})
+                with lock:
+                    active -= 1
+
+            argv = [*sources, "--output-dir", str(root / "out"), "--token-counter", "bytes",
+                    "--no-normalize", "--file-workers", "2"]
+            with patch.object(tts, "dependency_check"), patch.object(
+                    tts, "process_plan", side_effect=fake_process), redirect_stdout(io.StringIO()):
+                result = tts.main(argv)
+            self.assertEqual(result, 0)
+            self.assertEqual(peak, 2)
+
     def test_tokenizer_path_with_local_test_double(self):
         class LocalEncoding:
             def encode(self, text, disallowed_special=()):
@@ -284,13 +332,14 @@ class TextTests(unittest.TestCase):
             root = Path(d)
             (root / ".env").write_text(
                 "# credentials\nexport OPENAI_API_KEY='file-key'\n"
-                'OPENAI_BASE_URL="https://example.com/v1"\nIGNORED=value\n'
+                'OPENAI_BASE_URL="https://example.com/v1"\nTTS_FILE_WORKERS=3\nIGNORED=value\n'
             )
             with patch.object(Path, "cwd", return_value=root), patch.dict(
                     os.environ, {"OPENAI_API_KEY": "shell-key"}, clear=True):
                 tts.load_dotenv(root)
                 self.assertEqual(os.environ["OPENAI_API_KEY"], "shell-key")
                 self.assertEqual(os.environ["OPENAI_BASE_URL"], "https://example.com/v1")
+                self.assertEqual(os.environ["TTS_FILE_WORKERS"], "3")
                 self.assertNotIn("IGNORED", os.environ)
 
     def test_dotenv_rejects_empty_supported_value(self):
