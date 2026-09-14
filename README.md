@@ -235,6 +235,22 @@ subfolders; known cache folders, hidden folders, and virtual environments are
 excluded. README and requirements files are excluded from automatic discovery.
 Explicitly named files are not filtered this way.
 
+### MP3 title and course tags
+
+Put `Title:` and `Course:` labels within the first 20 lines of each source file:
+
+```text
+Title: CS 101 Week 3 Lecture Sessions
+Course: Introduction to Computer Science
+```
+
+The finished MP3 uses `CS 101 Week 3 Lecture Sessions` as its Title,
+`CS 101 - Introduction to Computer Science` as its Artist, and the full course
+name as its Album. The course code is the part of the title before `Week` and
+the week number. These header lines remain part of the narrated source text.
+If the labels or expected title pattern are absent, the first source line and
+the generic `AI-generated narration` artist are used for backward compatibility.
+
 Files are processed sequentially by default. To process separate files at the
 same time, use a conservative worker count such as:
 

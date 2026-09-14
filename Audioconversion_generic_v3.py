@@ -40,8 +40,8 @@ from typing import Any, Callable, Iterator
 import uuid
 import wave
 
-VERSION = "3.0.0"
-SCHEMA = 3
+VERSION = "3.1.0"
+SCHEMA = 4
 SAMPLE_RATE = 24000
 CHANNELS = 1
 SAMPLE_WIDTH = 2
@@ -400,6 +400,8 @@ class Plan:
     original: str
     prepared: str
     title: str
+    course_name: str | None
+    artist: str
     sections: list[Section]
     chunks: list[Chunk]
     changes: dict[str, int]
@@ -618,6 +620,23 @@ def make_chunks(sections: list[Section], budget: TokenBudget, chapters: bool) ->
     return chunks
 
 
+def document_metadata(text: str) -> tuple[str, str | None, str]:
+    """Read human-friendly metadata labels without removing them from narration."""
+    lines = text.splitlines()[:20]
+    title_match = next((re.fullmatch(r"\s*Title\s*:\s*(.+?)\s*", line, re.IGNORECASE)
+                        for line in lines if re.match(r"\s*Title\s*:", line, re.IGNORECASE)), None)
+    course_match = next((re.fullmatch(r"\s*Course\s*:\s*(.+?)\s*", line, re.IGNORECASE)
+                         for line in lines if re.match(r"\s*Course\s*:", line, re.IGNORECASE)), None)
+    title = title_match.group(1) if title_match else text.splitlines()[0].strip()[:240]
+    course_name = course_match.group(1) if course_match else None
+    artist = "AI-generated narration"
+    if course_name:
+        code_match = re.match(r"(.+?)\s+Week\s+\d+\b", title, re.IGNORECASE)
+        if code_match:
+            artist = f"{code_match.group(1).strip()} - {course_name}"
+    return title[:240], course_name, artist
+
+
 def prepare_plan(source: Path, args: argparse.Namespace, budget: TokenBudget,
                  rules: dict[str, str]) -> Plan:
     try:
@@ -641,9 +660,11 @@ def prepare_plan(source: Path, args: argparse.Namespace, budget: TokenBudget,
         warnings.append("Invisible Unicode characters remain in the body; preserved rather than silently deleted.")
     if re.search(r"(?m)^\s*[>+*-]\s|\$\$|\\(?:frac|begin)|[=<>]", prepared):
         warnings.append("Symbolic notation/formatting was preserved. Review pronunciation in the first recording.")
-    data = {"schema": SCHEMA, "text": prepared, "chunks": [asdict(c) for c in chunks]}
+    title, course_name, artist = document_metadata(prepared)
+    data = {"schema": SCHEMA, "text": prepared, "chunks": [asdict(c) for c in chunks],
+            "metadata": {"title": title, "course": course_name, "artist": artist}}
     return Plan(source, hashlib.sha256(raw).hexdigest(), original, prepared,
-                prepared.splitlines()[0].strip()[:240], sections, chunks, changes,
+                title, course_name, artist, sections, chunks, changes,
                 warnings, digest_json(data))
 
 
@@ -805,6 +826,7 @@ def export_plan(plan: Plan, paths: Paths, budget: TokenBudget) -> None:
     atomic_json(directory / "plan.json", {
         "schema": SCHEMA, "plan_id": plan.plan_id, "source": str(plan.source),
         "source_sha256": plan.source_hash, "title": plan.title,
+        "course": plan.course_name, "artist": plan.artist,
         "token_counter": budget.name, "pronunciations_applied": plan.changes,
         "sections": [{"index": s.index, "title": s.title} for s in plan.sections],
         "chunks": [dict(asdict(c), estimated_budget=budget.total(c.text)) for c in plan.chunks],
@@ -1158,12 +1180,15 @@ def normalize_master(source: Path, target: Path, args: argparse.Namespace,
 
 
 def encode_mp3(source: Path, target: Path, args: argparse.Namespace, title: str,
-               track: int | None = None) -> dict[str, Any]:
+               track: int | None = None, artist: str = "AI-generated narration",
+               course_name: str | None = None) -> dict[str, Any]:
     command = ffmpeg_base() + ["-i", str(source), "-map", "0:a:0", "-vn", "-c:a", "libmp3lame",
                 "-b:a", f"{args.bitrate}k", "-ar", str(SAMPLE_RATE), "-ac", "1",
                 "-id3v2_version", "3", "-write_xing", "1", "-metadata", f"title={title}",
-                "-metadata", "artist=AI-generated narration", "-metadata",
+                "-metadata", f"artist={artist}", "-metadata",
                 "comment=AI-generated speech from supplied text. Playback speed is controlled by the player."]
+    if course_name:
+        command += ["-metadata", f"album={course_name}"]
     if track is not None:
         command += ["-metadata", f"track={track}"]
     run_process(command + [str(target)], args.process_timeout)
@@ -1270,7 +1295,8 @@ def finalize(plan: Plan, paths: Paths, parts: list[list[AudioPart]], args: argpa
                 chapters[-1]["end_frame"] = wav_frames(master)
         reporter.say("  Encoding and validating the final MP3...")
         final_temp = temp / "final.mp3"
-        final_info = encode_mp3(master, final_temp, args, plan.title)
+        final_info = encode_mp3(master, final_temp, args, plan.title,
+                                artist=plan.artist, course_name=plan.course_name)
         expected = wav_frames(master) / SAMPLE_RATE
         if abs(final_info["duration"] - expected) > max(0.35, expected * 0.002):
             raise AudioError("Final MP3 duration differs unexpectedly from assembled PCM.")
@@ -1280,7 +1306,8 @@ def finalize(plan: Plan, paths: Paths, parts: list[list[AudioPart]], args: argpa
             wave_part = temp / f"chapter-{index}.wav"
             mp3_part = temp / f"chapter-{index}.mp3"
             slice_wave(master, wave_part, chapter["start_frame"], chapter["end_frame"])
-            info = encode_mp3(wave_part, mp3_part, args, chapter["title"], index)
+            info = encode_mp3(wave_part, mp3_part, args, chapter["title"], index,
+                              plan.artist, plan.course_name)
             destination = paths.chapters / f"{index:03d}_{safe_filename(chapter['title'])}.mp3"
             pending.append((mp3_part, destination, info))
             chapter_manifest.append({**chapter, "file": destination.name,

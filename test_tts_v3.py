@@ -220,6 +220,23 @@ class TextTests(unittest.TestCase):
             self.assertEqual(plan.prepared, text.strip())
             self.assertEqual(tts.content_key(text), tts.content_key("".join(c.text for c in plan.chunks)))
 
+    def test_labeled_course_metadata(self):
+        text = ("Title: CS 101 Week 3 Lecture Sessions\n"
+                "Course: Introduction to Computer Science\n\nLecture notes.")
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "notes.txt"
+            p.write_text(text)
+            args = arguments()
+            plan = tts.prepare_plan(p, args, tts.TokenBudget(args), {})
+        self.assertEqual(plan.title, "CS 101 Week 3 Lecture Sessions")
+        self.assertEqual(plan.course_name, "Introduction to Computer Science")
+        self.assertEqual(plan.artist, "CS 101 - Introduction to Computer Science")
+        self.assertEqual(plan.prepared, text)
+
+    def test_metadata_falls_back_for_unlabeled_document(self):
+        self.assertEqual(tts.document_metadata("Ordinary title\n\nBody."),
+                         ("Ordinary title", None, "AI-generated narration"))
+
     def test_pronunciation_boundaries(self):
         result, counts = tts.apply_pronunciations("HTML and ML; DSP, SDSP and FIRs FIR", {
             "ML": "machine learning", "DSP": "D S P", "FIR": "F I R"})
