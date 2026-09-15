@@ -1,0 +1,45 @@
+# Copy to ~/.config/audioconversion/config.toml for standalone use or
+# /etc/audioconversion/config.toml for server use. Never put secrets here.
+[paths]
+inbox = "/srv/tts/inbox"
+outbox = "/srv/tts/outbox"
+processed = "/srv/tts/processed"
+archive = "/srv/tts/archive"
+failed = "/srv/tts/failed"
+state = "/var/lib/audioconversion"
+logs = "/var/log/audioconversion"
+
+[processing]
+mode = "hybrid"
+
+[llm]
+preferred = "local"
+fallback = "none"
+[llm.local]
+provider = "ollama"
+endpoint = "http://127.0.0.1:11434"
+model = "MODEL_NAME"
+[llm.cloud]
+provider = "none"
+model = ""
+
+[tts]
+preferred = "cloud"
+fallback = "local"
+[tts.local]
+provider = "espeak-ng"
+voice = "default"
+[tts.cloud]
+provider = "openai"
+model = "gpt-4o-mini-tts"
+voice = "cedar"
+
+[output]
+format = "mp3"
+
+[watcher]
+poll_interval_seconds = 2
+stability_seconds = 5
+
+[cache]
+enabled = true

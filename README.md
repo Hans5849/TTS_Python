@@ -1,3 +1,22 @@
+# Audioconversion: V4 incremental redesign and V3 compatibility
+
+The repository now contains an **incremental V4 package architecture** for a shared
+standalone/server application. The proven V3 script remains intact and supported while
+its functionality is migrated behind provider interfaces. Read the current behavior,
+reuse analysis, technical-debt assessment, and staged plan in
+[`docs/V3_AUDIT_AND_MIGRATION.md`](docs/V3_AUDIT_AND_MIGRATION.md).
+
+Install the development package with `python -m pip install -e .`, copy
+`config/example.toml` outside the checkout, and run `tts --help`. Standalone conversion
+uses `tts convert FILE [FILE ...]`; `--private` filters every cloud provider before
+processing. Server deployment uses the systemd template and the same `Processor` core,
+with `normal`, `private`, and `cloud` policy inboxes. Runtime documents, audio, state,
+cache, logs, configuration, and secrets must live outside this Git checkout.
+
+## Legacy V3 documentation
+
+The remainder of this document describes the preserved V3 workflow.
+
 # Text-to-Speech V3: setup, upgrade, and use
 
 `Audioconversion_generic_v3.py` converts one or more `.txt` or `.md` files into

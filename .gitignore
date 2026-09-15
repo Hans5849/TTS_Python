@@ -1,34 +1,38 @@
-# Python bytecode and tooling caches
+# Runtime data belongs outside the checkout; these are defense in depth.
+inbox/
+outbox/
+processed/
+archive/
+failed/
+logs/
+state/
+cache/
+audio/
+audio_v3/
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.tmp
+*.part
+.tts-*
+.env
+*.key
+*.pem
+*.secret
+*.token
+*.sqlite
+*.sqlite3
+*.db
 __pycache__/
 *.py[cod]
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
 .coverage
 htmlcov/
-
-# Virtual environments and local environment files
+*.egg-info/
+build/
+dist/
 .venv/
 venv/
-env/
-.env
-.env.*
-!.env.example
-
-# Editors and operating systems
-.idea/
-.vscode/
-.DS_Store
-Thumbs.db
-*~
-
-# Generated TTS artifacts (audio can be large and may contain private material)
-*.mp3
-*.wav
-*_audio_parts/
-*_audio_v3/
-*_chapters/
-audio/
-audio_v3/
-.tts_runs/
-tts-plan-*.json
