@@ -1,0 +1,43 @@
+paths:
+  inbox: /srv/tts/inbox
+  outbox: /srv/tts/outbox
+  processed: /srv/tts/processed
+  archive: /srv/tts/archive
+  failed: /srv/tts/failed
+  state: /var/lib/tts-python
+  logs: /var/log/tts-python
+processing:
+  mode: hybrid
+  max_retries: 2
+  retry_initial_seconds: 2
+  retry_max_seconds: 30
+llm:
+  preferred: local
+  fallback: none
+  local:
+    provider: ollama
+    endpoint: http://127.0.0.1:11434
+    model: MODEL_NAME
+  cloud:
+    provider: none
+    model: ''
+tts:
+  preferred: cloud
+  fallback: local
+  local:
+    provider: espeak-ng
+    voice: default
+    gpu: auto
+    idle_timeout_seconds: 600
+  cloud:
+    provider: openai
+    model: gpt-4o-mini-tts
+    voice: cedar
+output:
+  format: mp3
+watcher:
+  poll_interval_seconds: 2
+  stability_interval_seconds: 2
+  stability_checks: 3
+cache:
+  enabled: true

@@ -13,7 +13,7 @@ def service_state() -> str:
     if not shutil.which("systemctl") or not Path("/run/systemd/system").is_dir():
         return "FOREGROUND MODE (systemd not running)"
     result = subprocess.run(
-        ["systemctl", "is-active", "audioconversion.service"],
+        ["systemctl", "is-active", "tts-python.service"],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False,
     )
     state = result.stdout.strip() or "unknown"
@@ -43,7 +43,7 @@ def inbox_count(config: AppConfig) -> int:
 
 
 def recent_logs(config: AppConfig, lines: int = 30) -> str:
-    log = config.paths.logs / "audioconversion.log"
+    log = config.paths.logs / "tts-python.log"
     if not log.exists():
         return f"No application log exists at {log}."
     return "\n".join(log.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
@@ -52,7 +52,7 @@ def recent_logs(config: AppConfig, lines: int = 30) -> str:
 def dashboard(config: AppConfig, store: JobStore) -> str:
     counts = store.counts()
     active = counts.get("processing", 0)
-    return f"""Audio Conversion
+    return f"""Text-to-Speech
 ================================================
 Program:   {Path(__file__).resolve().parents[2]}
 Inbox:     {config.paths.inbox}

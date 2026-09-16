@@ -4,6 +4,9 @@ import logging
 from pathlib import Path
 import shutil
 import time
+import threading
+from speech_common.credentials import redact
+from speech_common.retry import retry_delay
 from collections.abc import Callable
 
 from .config import AppConfig
@@ -22,7 +25,8 @@ class Watcher:
     def __init__(self, config: AppConfig, processor: Processor, store: JobStore,
                  *, clock: Callable[[], float] = time.time):
         self.config, self.processor, self.store, self.clock = config, processor, store, clock
-        self.log = logging.getLogger("audioconversion.watcher")
+        self.log = logging.getLogger("tts_python.watcher")
+        self.stop = threading.Event()
         self.stability = StabilityTracker(config.stability_checks, config.stability_seconds)
 
     def discover(self) -> int:
@@ -53,6 +57,8 @@ class Watcher:
     def process_due(self) -> int:
         processed = 0
         for row in self.store.due(self.clock()):
+            if self.stop.is_set():
+                break
             source = Path(row["source"])
             if not source.is_file():
                 self.store.update(row["id"], "failed", error="source disappeared before processing")
@@ -73,14 +79,16 @@ class Watcher:
             except Exception as exc:
                 retries_used = attempt["attempts"] - 1
                 if is_retryable(exc) and retries_used < self.config.max_retries:
-                    delay = min(self.config.retry_initial_seconds * (2 ** retries_used),
-                                self.config.retry_max_seconds)
-                    self.store.update(row["id"], "retry_wait", error=str(exc)[:1600],
+                    headers = getattr(getattr(exc, "response", None), "headers", {}) or {}
+                    delay = retry_delay(retries_used, initial=self.config.retry_initial_seconds,
+                                        maximum=self.config.retry_max_seconds,
+                                        retry_after=headers.get("retry-after"), jitter=False)
+                    self.store.update(row["id"], "retry_wait", error=redact(str(exc))[:1600],
                                       next_attempt_at=self.clock() + delay)
                     self.log.warning("retry scheduled: %s in %.1f seconds (%s)", row["id"], delay, exc)
                 else:
                     failed_path = self._move_unique(source, self.config.paths.failed / row["policy"])
-                    self.store.update(row["id"], "failed", error=str(exc)[:1600], source_path=failed_path)
+                    self.store.update(row["id"], "failed", error=redact(str(exc))[:1600], source_path=failed_path)
                     self.log.error("permanent failure: %s (%s)", row["id"], exc)
             processed += 1
         return processed
@@ -100,11 +108,11 @@ class Watcher:
         return Path(shutil.move(source, destination))
 
     def run(self, idle_callback: Callable[[], None] | None = None) -> None:
-        while True:
+        while not self.stop.is_set():
             try:
                 self.scan_once()
                 if idle_callback:
                     idle_callback()
             except Exception:
                 self.log.exception("watcher scan failed; continuing")
-            time.sleep(self.config.watcher_interval)
+            self.stop.wait(self.config.watcher_interval)
