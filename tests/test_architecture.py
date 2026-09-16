@@ -2,13 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from audioconversion.chunker import chunk_text
-from audioconversion.config import load_config
-from audioconversion.normalizer import normalize
-from audioconversion.processor import Processor
-from audioconversion.router import PrivacyError, candidates, execute_with_fallback
-from audioconversion.database import JobStore
-from audioconversion.status import dashboard
+from tts_python.chunker import chunk_text
+from tts_python.config import load_config
+from tts_python.normalizer import normalize
+from tts_python.processor import Processor
+from tts_python.router import PrivacyError, candidates, execute_with_fallback
+from tts_python.database import JobStore
+from tts_python.status import dashboard
 
 
 class Engine:
@@ -110,7 +110,7 @@ def test_dashboard_reports_paths_and_file_counts(tmp_path, monkeypatch):
     store = JobStore(config.paths.state / "jobs.sqlite3")
     failed = store.add(source, "private")
     store.update(failed, "failed", error="offline")
-    monkeypatch.setattr("audioconversion.status.service_state", lambda: "RUNNING")
+    monkeypatch.setattr("tts_python.status.service_state", lambda: "RUNNING")
     output = dashboard(config, store)
     assert f"Inbox:     {config.paths.inbox}" in output
     assert "1 in inbox | 0 active | 0 completed | 1 failed" in output

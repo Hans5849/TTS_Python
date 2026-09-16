@@ -7,14 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from audioconversion.cli import main
-from audioconversion.config import load_config
-from audioconversion.database import JobStore, SourceIdentity
-from audioconversion.diagnostics import run_diagnostics
-from audioconversion.gpu import GPUDevice, GPUError, _apply_cuda_visibility, discover_gpus, resolve_gpu
-from audioconversion.lifecycle import LifecycleManager, ManagedTTSEngine
-from audioconversion.stability import StabilityTracker
-from audioconversion.watcher import Watcher
+from tts_python.cli import main
+from tts_python.config import load_config
+from tts_python.database import JobStore, SourceIdentity
+from tts_python.diagnostics import run_diagnostics
+from tts_python.gpu import GPUDevice, GPUError, _apply_cuda_visibility, discover_gpus, resolve_gpu
+from tts_python.lifecycle import LifecycleManager, ManagedTTSEngine
+from tts_python.stability import StabilityTracker
+from tts_python.watcher import Watcher
 
 
 def write_config(root: Path, *, retries=2, checks=1, interval=0) -> Path:
@@ -234,7 +234,7 @@ def gpu(index, uuid, free=100, logical=None):
 
 
 def test_gpu_resolution_and_cuda_visible_remapping():
-    devices = _apply_cuda_visibility([gpu(0, "GPU-A"), gpu(1, "GPU-B", 900)], "GPU-B,0")
+    devices = _apply_cuda_visibility([gpu(0, "GPU-A"), gpu(1, "GPU-B", 900)], "GPU-B,GPU-A")
     assert devices[0].cuda_index == 1 and devices[1].cuda_index == 0
     assert resolve_gpu(1, devices).cuda_index == 0
     assert resolve_gpu("GPU-B", devices).physical_index == 1
@@ -242,7 +242,7 @@ def test_gpu_resolution_and_cuda_visible_remapping():
 
 
 def test_gpu_hidden_and_no_gpu_diagnostics():
-    devices = _apply_cuda_visibility([gpu(0, "GPU-A"), gpu(1, "GPU-B")], "0")
+    devices = _apply_cuda_visibility([gpu(0, "GPU-A"), gpu(1, "GPU-B")], "GPU-A")
     with pytest.raises(GPUError, match="hidden"):
         resolve_gpu(1, devices)
     with pytest.raises(GPUError, match="no process-visible"):
@@ -250,10 +250,11 @@ def test_gpu_hidden_and_no_gpu_diagnostics():
 
 
 def test_discover_gpu_parses_mocked_nvidia_smi(monkeypatch):
-    monkeypatch.setattr("audioconversion.gpu.shutil.which", lambda name: "/usr/bin/nvidia-smi")
+    monkeypatch.setattr("tts_python.gpu.shutil.which", lambda name: "/usr/bin/nvidia-smi")
     result = SimpleNamespace(returncode=0, stderr="", stdout="1, GPU-B, 0000:02:00.0, Test GPU, 8192, 4096\n")
-    monkeypatch.setattr("audioconversion.gpu.subprocess.run", lambda *args, **kwargs: result)
+    monkeypatch.setattr("tts_python.gpu.subprocess.run", lambda *args, **kwargs: result)
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.setattr("speech_common.gpu.cuda_mapping", lambda: {"GPU-B": 1})
     found = discover_gpus()
     assert found[0].physical_index == 1 and found[0].cuda_index == 1
 
@@ -288,7 +289,7 @@ def test_cli_retries_failed_job_without_sqlite_edits(tmp_path):
 
 def test_doctor_is_provider_aware_and_never_prints_secret(tmp_path, monkeypatch):
     config = load_config(write_config(tmp_path))
-    monkeypatch.setattr("audioconversion.diagnostics.shutil.which", lambda name: None)
+    monkeypatch.setattr("tts_python.diagnostics.shutil.which", lambda name: None)
     monkeypatch.setenv("OPENAI_API_KEY", "super-secret-value")
     checks = run_diagnostics(config)
     text = "\n".join(check.message for check in checks)
@@ -299,7 +300,7 @@ def test_doctor_is_provider_aware_and_never_prints_secret(tmp_path, monkeypatch)
 
 def test_service_control_is_actionable_without_systemd(tmp_path, monkeypatch, capsys):
     config_path = write_config(tmp_path)
-    monkeypatch.setattr("audioconversion.cli.shutil.which", lambda name: None)
+    monkeypatch.setattr("tts_python.cli.shutil.which", lambda name: None)
     assert main(["--config", str(config_path), "service", "status"]) == 2
     error = capsys.readouterr().err
     assert "systemd is not running" in error

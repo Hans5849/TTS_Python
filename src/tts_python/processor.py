@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 
+from speech_common.files import atomic_write, output_stem
 from .chunker import chunk_text
 from .config import AppConfig
 from .normalizer import normalize
@@ -25,7 +26,7 @@ class ConversionResult:
 class Processor:
     def __init__(self, config: AppConfig, llms: dict, engines: dict, logger: logging.Logger | None = None):
         self.config, self.llms, self.engines = config, llms, engines
-        self.logger = logger or logging.getLogger("audioconversion")
+        self.logger = logger or logging.getLogger("tts-python")
 
     def convert(self, source: Path, *, private: bool = False) -> ConversionResult:
         source = source.resolve()
@@ -48,7 +49,7 @@ class Processor:
                             if use_llm else piece.text)
         speech = "\n\n".join(rendered)
         digest = hashlib.sha256(speech.encode()).hexdigest()
-        stem = source.stem
+        stem = output_stem(source, digest)
         speech_path = self.config.paths.processed / f"{stem}.tts.txt"
         audio_path = self.config.paths.outbox / f"{stem}.{self.config.output_format}"
         self._atomic_text(speech_path, speech + "\n")
@@ -77,13 +78,4 @@ class Processor:
 
     @staticmethod
     def _atomic_text(path: Path, text: str) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, name = tempfile.mkstemp(prefix=".tts-", suffix=".tmp", dir=path.parent)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(text)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(name, path)
-        finally:
-            Path(name).unlink(missing_ok=True)
+        atomic_write(path, text, mode=0o660)

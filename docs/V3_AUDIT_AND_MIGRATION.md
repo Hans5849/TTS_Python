@@ -2,7 +2,7 @@
 
 ## What V3 currently does
 
-`Audioconversion_generic_v3.py` is a mature single-file batch converter. It discovers or
+`legacy/text_to_speech_v3.py` is a mature single-file batch converter. It discovers or
 accepts multiple UTF-8 text/Markdown documents, preserves wording, detects sections,
 creates token- and character-bounded requests, synthesizes OpenAI WAV chunks, resumes
 from a content-addressed cache, assembles and normalizes audio with FFmpeg, writes MP3
@@ -62,8 +62,8 @@ Configuration defaults use per-user XDG-like directories. The server example exp
 uses `/srv`, `/var/lib`, and `/var/log`, but every path is configurable. The repository
 contains only source, examples, templates, tests, and documentation. Private jobs filter
 cloud providers before any source or processed content reaches provider code, and fail
-closed if no local provider is configured. Secrets are exclusively supplied by the
-environment or the optional root-managed systemd environment file.
+closed if no local provider is configured. Secrets are supplied through Speech_Common
+credentials, systemd credential files, or explicit foreground environment overrides.
 
 ## Unattended-service reliability now implemented
 

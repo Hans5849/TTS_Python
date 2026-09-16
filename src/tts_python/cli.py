@@ -7,6 +7,8 @@ import subprocess
 import sys
 import shutil
 
+from speech_common.coordination import FileLock
+from speech_common.credentials import redact
 from .config import ConfigError, default_config_path, load_config
 from .database import JobStore
 from .factory import build_processor
@@ -16,7 +18,7 @@ from .diagnostics import run_diagnostics
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="tts", description="Convert documents through the shared Audioconversion pipeline")
+    root = argparse.ArgumentParser(prog="tts", description="Text-to-Speech document processing")
     root.add_argument("--config", type=Path)
     commands = root.add_subparsers(dest="command", required=True)
     convert = commands.add_parser("convert")
@@ -68,9 +70,9 @@ def _retry(store: JobStore, config, job_or_source: str) -> Path:
 
 def _reset(store: JobStore, config) -> int:
     removed = store.reset_terminal()
-    for log in config.paths.logs.glob("audioconversion.log*"):
+    for log in config.paths.logs.glob("tts-python.log*"):
         if log.is_file():
-            if log.name == "audioconversion.log":
+            if log.name == "tts-python.log":
                 log.write_text("", encoding="utf-8")
             else:
                 log.unlink()
@@ -88,7 +90,7 @@ def _interactive_dashboard(config, store: JobStore) -> None:
         if choice == "q":
             return
         if choice == "1":
-            subprocess.run(["systemctl", "status", "audioconversion.service", "--no-pager"], check=False)
+            subprocess.run(["systemctl", "status", "tts-python.service", "--no-pager"], check=False)
         elif choice == "2":
             print("\n" + recent_logs(config))
         elif choice == "3":
@@ -130,10 +132,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         store = JobStore(config.paths.state / "jobs.sqlite3")
         if args.command == "convert":
-            processor = build_processor(config)
-            for source in args.files:
-                result = processor.convert(source, private=args.private)
-                print(f"{source} -> {result.audio}\n  speech-ready: {result.speech_ready}")
+            with FileLock(config.paths.state / "worker.lock"):
+                processor = build_processor(config)
+                for source in args.files:
+                    result = processor.convert(source, private=args.private)
+                    print(f"{source} -> {result.audio}\n  speech-ready: {result.speech_ready}")
         elif args.command in {"status", "dashboard"}:
             print(dashboard(config, store))
             if args.command == "dashboard" and sys.stdin.isatty() and sys.stdout.isatty():
@@ -181,11 +184,11 @@ def main(argv: list[str] | None = None) -> int:
                         "systemd is not running; on WSL enable systemd in /etc/wsl.conf, "
                         "or use 'tts service run' in a long-lived terminal"
                     )
-                result = subprocess.run(["systemctl", args.action, "audioconversion.service"], check=False)
+                result = subprocess.run(["systemctl", args.action, "tts-python.service"], check=False)
                 return result.returncode
         return 0
     except (ConfigError, OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        print(f"tts: error: {exc}", file=sys.stderr)
+        print("tts: error: " + redact(str(exc)), file=sys.stderr)
         return 2
 
 

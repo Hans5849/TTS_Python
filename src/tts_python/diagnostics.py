@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 
+from speech_common.credentials import openai_key, CredentialError
 from .config import AppConfig
 from .gpu import GPUError, discover_gpus, resolve_gpu
 
@@ -35,9 +36,12 @@ def run_diagnostics(config: AppConfig) -> list[Check]:
         checks.append(Check(bool(ffmpeg), f"FFmpeg: {ffmpeg or 'missing; install ffmpeg'}"))
     if cloud.provider == "openai":
         checks.append(Check(bool(cloud.model), "OpenAI model is configured" if cloud.model else "OpenAI model is missing"))
-        checks.append(Check(bool(os.getenv("OPENAI_API_KEY")),
-                            "OPENAI_API_KEY is set" if os.getenv("OPENAI_API_KEY") else
-                            "OPENAI_API_KEY is not set (secret value was not displayed)"))
+        try:
+            present = bool(openai_key("tts", required=False))
+            checks.append(Check(present, "OpenAI credential is available" if present else
+                                "OpenAI credential is unavailable in this process; check service credentials or OPENAI_API_KEY_FILE"))
+        except CredentialError as exc:
+            checks.append(Check(False, str(exc)))
     if local.provider in GPU_PROVIDERS:
         try:
             devices = discover_gpus()

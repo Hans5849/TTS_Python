@@ -1,0 +1,8 @@
+app: tts
+common_version: 0.1.0
+config_template: config/example.yaml
+required_commands:
+- ffmpeg
+- espeak-ng
+legacy_units:
+- audioconversion.service

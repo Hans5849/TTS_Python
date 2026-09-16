@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
-import tomllib
+from speech_common.config import load_mapping
+from speech_common.config import ConfigError as SharedConfigError
 from typing import Any
 
 
@@ -12,19 +13,19 @@ class ConfigError(ValueError):
 
 
 def default_config_path() -> Path:
-    override = os.getenv("AUDIOCONVERSION_CONFIG")
-    return Path(override).expanduser() if override else Path.home() / ".config/audioconversion/config.toml"
+    override = os.getenv("TTS_CONFIG") or os.getenv("AUDIOCONVERSION_CONFIG")
+    return Path(override).expanduser() if override else Path.home() / ".config/tts-python/config.yaml"
 
 
 @dataclass(frozen=True)
 class PathsConfig:
-    inbox: Path = Path.home() / ".local/share/audioconversion/inbox"
-    outbox: Path = Path.home() / ".local/share/audioconversion/outbox"
-    processed: Path = Path.home() / ".local/share/audioconversion/processed"
-    archive: Path = Path.home() / ".local/share/audioconversion/archive"
-    failed: Path = Path.home() / ".local/share/audioconversion/failed"
-    state: Path = Path.home() / ".local/state/audioconversion"
-    logs: Path = Path.home() / ".local/state/audioconversion/logs"
+    inbox: Path = Path.home() / ".local/share/tts-python/inbox"
+    outbox: Path = Path.home() / ".local/share/tts-python/outbox"
+    processed: Path = Path.home() / ".local/share/tts-python/processed"
+    archive: Path = Path.home() / ".local/share/tts-python/archive"
+    failed: Path = Path.home() / ".local/share/tts-python/failed"
+    state: Path = Path.home() / ".local/state/tts-python"
+    logs: Path = Path.home() / ".local/state/tts-python/logs"
 
 
 @dataclass(frozen=True)
@@ -81,7 +82,12 @@ class AppConfig:
 
 
 def _provider(data: dict[str, Any]) -> ProviderConfig:
-    values = {k: v for k, v in data.items() if k in ProviderConfig.__dataclass_fields__}
+    if not isinstance(data, dict):
+        raise ConfigError("provider configuration must be a mapping")
+    extra = set(data) - set(ProviderConfig.__dataclass_fields__)
+    if extra:
+        raise ConfigError(f"unknown provider settings: {', '.join(sorted(extra))}")
+    values = dict(data)
     for key in ("provider", "model", "voice", "endpoint"):
         if key in values:
             values[key] = str(values[key])
@@ -107,13 +113,25 @@ def load_config(path: Path | None = None, *, required: bool = False) -> AppConfi
         config.validate()
         return config
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raw = load_mapping(path)
+    except (OSError, SharedConfigError) as exc:
         raise ConfigError(f"cannot read configuration {path}: {exc}") from exc
     known = {"paths", "processing", "llm", "tts", "output", "watcher", "cache", "privacy"}
     unknown = set(raw) - known
     if unknown:
         raise ConfigError(f"unknown configuration sections: {', '.join(sorted(unknown))}")
+    permitted = {"paths": set(PathsConfig.__dataclass_fields__),
+                 "processing": {"mode", "max_retries", "retry_initial_seconds", "retry_max_seconds"},
+                 "output": {"format"}, "watcher": {"poll_interval_seconds", "stability_interval_seconds", "stability_seconds", "stability_checks"},
+                 "cache": {"enabled"}, "privacy": set(),
+                 "llm": {"preferred", "fallback", "local", "cloud"},
+                 "tts": {"preferred", "fallback", "local", "cloud"}}
+    for section, values in raw.items():
+        if not isinstance(values, dict):
+            raise ConfigError(f"{section} must be a mapping")
+        extra = set(values) - permitted[section]
+        if extra:
+            raise ConfigError(f"unknown {section} settings: {', '.join(sorted(extra))}")
     defaults = PathsConfig()
     paths_raw = raw.get("paths", {})
     paths = PathsConfig(**{name: Path(paths_raw.get(name, getattr(defaults, name))).expanduser()

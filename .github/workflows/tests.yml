@@ -1,46 +1,50 @@
-name: Tests
-
-on:
-  push:
-  pull_request:
-  workflow_dispatch:
-
+name: Tests and installation safety
+on: [push, pull_request]
 permissions:
   contents: read
-
 concurrency:
-  group: tests-${{ github.workflow }}-${{ github.ref }}
+  group: speech-tests-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
-  test:
-    name: Python ${{ matrix.python-version }}
+  tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12", "3.13"]
-
+        python: ['3.11', '3.12', '3.13']
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - uses: actions/checkout@v4
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: requirements-tts.txt
-
-      - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
-
-      - name: Install dependencies
-        run: python -m pip install --upgrade pip -r requirements-tts.txt
-
-      - name: Compile Python sources
-        run: python -m compileall -q Audioconversion_generic_v3.py test_tts_v3.py
-
-      - name: Run offline regression tests
-        run: python -m unittest -v test_tts_v3.py
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Hans5849/Speech_Common
+          ref: e7edcdfa0be1a4f4373b8d431440f389a6a1514a
+          path: common
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
+      - run: python -m pip install -e './common[test]' -e './app[test]' -r app/requirements-tts.txt
+      - run: cd app && python -m compileall -q src && python -m pytest -q
+      - run: cd app && python -m unittest -q test_tts_v3.py
+  host-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Hans5849/Speech_Common
+          ref: e7edcdfa0be1a4f4373b8d431440f389a6a1514a
+          path: common
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y python3-venv ffmpeg espeak-ng
+      - run: sudo sh common/install.sh --yes
+      - run: sh app/tests/host-smoke.sh
