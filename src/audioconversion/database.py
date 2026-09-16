@@ -46,3 +46,17 @@ class JobStore:
     def counts(self) -> dict[str, int]:
         with self.connect() as db:
             return {row[0]: row[1] for row in db.execute("SELECT status, count(*) FROM jobs GROUP BY status")}
+
+    def get(self, job_id: str):
+        with self.connect() as db:
+            return db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+
+    def failed(self):
+        with self.connect() as db:
+            return db.execute("SELECT * FROM jobs WHERE status = 'failed' ORDER BY updated_at DESC").fetchall()
+
+    def reset_terminal(self) -> int:
+        """Forget dashboard history only; never delete source or generated files."""
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM jobs WHERE status IN ('completed', 'failed')")
+            return cursor.rowcount

@@ -4,17 +4,16 @@ After=network.target
 
 [Service]
 Type=simple
-User=audioconversion
-Group=audioconversion
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
 Environment=AUDIOCONVERSION_CONFIG=/etc/audioconversion/config.toml
 EnvironmentFile=-/etc/audioconversion/secrets.env
-ExecStart=/opt/audioconversion/venv/bin/tts service run
+ExecStart=@PROGRAM_DIR@/venv/bin/tts service run
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target

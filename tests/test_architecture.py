@@ -7,6 +7,8 @@ from audioconversion.config import load_config
 from audioconversion.normalizer import normalize
 from audioconversion.processor import Processor
 from audioconversion.router import PrivacyError, candidates, execute_with_fallback
+from audioconversion.database import JobStore
+from audioconversion.status import dashboard
 
 
 class Engine:
@@ -88,3 +90,27 @@ def test_private_pipeline_never_calls_cloud(tmp_path):
     source.write_text("Sensitive content.")
     with pytest.raises(PrivacyError):
         Processor(config, {}, {"cloud": Engine(cloud=True)}).convert(source, private=True)
+
+
+def test_job_store_reset_only_removes_terminal_jobs(tmp_path):
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    completed = store.add(tmp_path / "done.txt")
+    waiting = store.add(tmp_path / "waiting.txt")
+    store.update(completed, "completed")
+    assert store.reset_terminal() == 1
+    assert store.get(completed) is None
+    assert store.get(waiting)["status"] == "waiting"
+
+
+def test_dashboard_reports_paths_and_file_counts(tmp_path, monkeypatch):
+    config = load_config(config_file(tmp_path))
+    source = config.paths.inbox / "private" / "notes.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("private")
+    store = JobStore(config.paths.state / "jobs.sqlite3")
+    failed = store.add(source, "private")
+    store.update(failed, "failed", error="offline")
+    monkeypatch.setattr("audioconversion.status.service_state", lambda: "RUNNING")
+    output = dashboard(config, store)
+    assert f"Inbox:     {config.paths.inbox}" in output
+    assert "1 in inbox | 0 active | 0 completed | 1 failed" in output

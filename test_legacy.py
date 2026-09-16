@@ -1,6 +1,6 @@
 """Offline regression tests; simulated speech responses, never paid API calls.
 
-Run: python -m unittest -v test_tts_v3.py
+Run: python -m unittest -v test_legacy.py
 Sample-file tests run when the six optional *REBUILT.txt files are present in
 TTS_SAMPLE_DIR (or the package's parent directory). Otherwise those tests skip.
 """
@@ -22,7 +22,7 @@ import unittest
 from unittest.mock import patch
 import wave
 
-import Audioconversion_generic_v3 as tts
+import audioconversion_legacy as tts
 
 
 def arguments(*extra):
@@ -360,7 +360,7 @@ class TextTests(unittest.TestCase):
     def test_discovery_excludes_outputs(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            for path in ("notes.txt", "README.md", "requirements-tts.txt", "old_audio_v3/prepared.txt", ".venv/hello.txt"):
+            for path in ("notes.txt", "README.md", "requirements-tts.txt", "old_audio_cache/prepared.txt", ".venv/hello.txt"):
                 p = root / path
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text("test")
@@ -414,11 +414,11 @@ class TextTests(unittest.TestCase):
             source_dir.mkdir()
             source = source_dir / "notes.txt"
             source.write_text("A short test document.")
-            fake_script = script_dir / "Audioconversion_generic_v3.py"
+            fake_script = script_dir / "audioconversion_legacy.py"
             with patch.object(tts, "__file__", str(fake_script)), redirect_stdout(io.StringIO()):
                 result = tts.main([str(source), "--dry-run", "--export-plan", "--token-counter", "bytes"])
             self.assertEqual(result, 0)
-            self.assertTrue(list((script_dir / "audio" / "notes_audio_v3" / "plans").iterdir()))
+            self.assertTrue(list((script_dir / "audio" / "notes_audio_cache" / "plans").iterdir()))
             self.assertFalse((source_dir / "audio").exists())
 
     def test_process_timeout(self):
@@ -428,7 +428,7 @@ class TextTests(unittest.TestCase):
     def test_lock_excludes_second_process(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / ".lock"
-            code = "from pathlib import Path; import Audioconversion_generic_v3 as t;\nwith t.file_lock(Path(__import__('sys').argv[1])): print('bad')"
+            code = "from pathlib import Path; import audioconversion_legacy as t;\nwith t.file_lock(Path(__import__('sys').argv[1])): print('bad')"
             with tts.file_lock(path):
                 p = subprocess.run([sys.executable, "-c", code, str(path)],
                                    cwd=Path(tts.__file__).parent, capture_output=True, text=True)
@@ -716,7 +716,7 @@ class AudioTests(unittest.TestCase):
         with patch.object(tts.LazyClient, "get", side_effect=AssertionError("A completed sample requested an API client")), redirect_stdout(io.StringIO()):
             result = tts.main(argv)
         self.assertEqual(result, 0)
-        for path in out.glob("*_audio_v3/last_run.json"):
+        for path in out.glob("*_audio_cache/last_run.json"):
             data = json.loads(path.read_text())
             self.assertEqual(data["status"], "skipped")
             self.assertEqual(data["requests"], 0)

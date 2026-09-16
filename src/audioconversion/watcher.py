@@ -43,10 +43,17 @@ class Watcher:
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(source, destination)
                     self.store.update(job_id, "failed", error=str(exc)[:1600])
+                finally:
+                    self.seen.discard(source)
                 processed += 1
         return processed
 
     def run(self) -> None:
         while True:
-            self.scan_once()
+            try:
+                self.scan_once()
+            except Exception:
+                # A filesystem race or one malformed job must not terminate the
+                # persistent service. Per-job failures are recorded in scan_once.
+                self.log.exception("watcher scan failed; continuing")
             time.sleep(self.config.watcher_interval)
