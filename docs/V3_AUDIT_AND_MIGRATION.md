@@ -32,8 +32,8 @@ future adapters should extract it behind `TTSEngine` in small, tested steps.
   OpenAI transport, caching, audio operations, and orchestration.
 * Runtime output defaults beside the script, which is convenient for V3 but unsuitable
   as a server data-separation policy.
-* Configuration is V3-specific JSON and environment loading rather than one schema for
-  standalone and server modes.
+* Configuration is V3-specific JSON and environment loading rather than the package's
+  service configuration schema.
 * The OpenAI speech API is embedded in orchestration and there is no LLM provider,
   local TTS interface, privacy policy boundary, durable server queue, or watcher.
 * There is no installed command, package boundary, systemd unit, or service dashboard.

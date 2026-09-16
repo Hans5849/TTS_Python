@@ -176,6 +176,11 @@ def main(argv: list[str] | None = None) -> int:
             if args.action == "run":
                 run(path)
             else:
+                if not shutil.which("systemctl") or not Path("/run/systemd/system").is_dir():
+                    raise RuntimeError(
+                        "systemd is not running; on WSL enable systemd in /etc/wsl.conf, "
+                        "or use 'tts service run' in a long-lived terminal"
+                    )
                 result = subprocess.run(["systemctl", args.action, "audioconversion.service"], check=False)
                 return result.returncode
         return 0

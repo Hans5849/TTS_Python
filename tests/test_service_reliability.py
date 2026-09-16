@@ -295,3 +295,12 @@ def test_doctor_is_provider_aware_and_never_prints_secret(tmp_path, monkeypatch)
     assert "espeak-ng not found" in text
     assert "super-secret-value" not in text
     assert "does not require NVIDIA GPU" in text
+
+
+def test_service_control_is_actionable_without_systemd(tmp_path, monkeypatch, capsys):
+    config_path = write_config(tmp_path)
+    monkeypatch.setattr("audioconversion.cli.shutil.which", lambda name: None)
+    assert main(["--config", str(config_path), "service", "status"]) == 2
+    error = capsys.readouterr().err
+    assert "systemd is not running" in error
+    assert "tts service run" in error

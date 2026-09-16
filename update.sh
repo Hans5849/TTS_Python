@@ -11,8 +11,12 @@ SERVICE_USER=$(sed -n '2p' /etc/audioconversion/install.conf)
 SERVICE_GROUP=$(sed -n '3p' /etc/audioconversion/install.conf)
 [ -d "$PROGRAM_DIR" ] || { echo "Installed program directory is missing: $PROGRAM_DIR" >&2; exit 1; }
 
+HAS_SYSTEMD=0
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    HAS_SYSTEMD=1
+fi
 WAS_ACTIVE=0
-if systemctl is-active --quiet audioconversion.service; then
+if [ "$HAS_SYSTEMD" -eq 1 ] && systemctl is-active --quiet audioconversion.service; then
     WAS_ACTIVE=1
     systemctl stop audioconversion.service
 fi
@@ -40,7 +44,9 @@ fi
 sed -e "s|@PROGRAM_DIR@|$PROGRAM_DIR|g" -e "s|@SERVICE_USER@|$SERVICE_USER|g" \
     -e "s|@SERVICE_GROUP@|$SERVICE_GROUP|g" "$PROGRAM_DIR/systemd/audioconversion.service" \
     > /etc/systemd/system/audioconversion.service
-systemctl daemon-reload
+if [ "$HAS_SYSTEMD" -eq 1 ]; then
+    systemctl daemon-reload
+fi
 if [ "$WAS_ACTIVE" -eq 1 ]; then
     systemctl start audioconversion.service
 fi

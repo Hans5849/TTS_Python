@@ -126,9 +126,19 @@ chmod 0600 /etc/audioconversion/install.conf
 sed -e "s|@PROGRAM_DIR@|$PROGRAM_DIR|g" -e "s|@SERVICE_USER@|$LOGIN_USER|g" \
     -e "s|@SERVICE_GROUP@|$LOGIN_GROUP|g" "$PROGRAM_DIR/systemd/audioconversion.service" \
     > /etc/systemd/system/audioconversion.service
-systemctl daemon-reload
-systemctl enable --now audioconversion.service
-ln -sf "$PROGRAM_DIR/venv/bin/tts" /usr/local/bin/tts
+cat > /usr/local/bin/tts <<EOF
+#!/bin/sh
+export AUDIOCONVERSION_CONFIG=/etc/audioconversion/config.toml
+exec "$PROGRAM_DIR/venv/bin/tts" "\$@"
+EOF
+chmod 0755 /usr/local/bin/tts
 
-printf '\nInstallation complete.\n  Program: %s\n  Inbox:   %s\n  Outbox:  %s\n\nRun: tts dashboard\n' \
-    "$PROGRAM_DIR" "$INBOX_DIR" "$OUTBOX_DIR"
+SERVICE_MESSAGE="Systemd is not running. Start in a long-lived terminal with: tts service run"
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    systemctl enable --now audioconversion.service
+    SERVICE_MESSAGE="Service enabled and started. Run: tts dashboard"
+fi
+
+printf '\nInstallation complete.\n  Program: %s\n  Inbox:   %s\n  Outbox:  %s\n\n%s\n' \
+    "$PROGRAM_DIR" "$INBOX_DIR" "$OUTBOX_DIR" "$SERVICE_MESSAGE"

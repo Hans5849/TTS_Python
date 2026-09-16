@@ -10,8 +10,8 @@ from .gpu import GPUError, discover_gpus, resolve_gpu
 
 
 def service_state() -> str:
-    if not shutil.which("systemctl"):
-        return "UNAVAILABLE (systemctl not installed)"
+    if not shutil.which("systemctl") or not Path("/run/systemd/system").is_dir():
+        return "FOREGROUND MODE (systemd not running)"
     result = subprocess.run(
         ["systemctl", "is-active", "audioconversion.service"],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False,

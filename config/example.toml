@@ -1,5 +1,5 @@
-# Copy to ~/.config/audioconversion/config.toml for standalone use or
-# /etc/audioconversion/config.toml for server use. Never put secrets here.
+# The installer writes /etc/audioconversion/config.toml from this server template.
+# Never put secrets in this file or commit a live configuration.
 [paths]
 inbox = "/srv/tts/inbox"
 outbox = "/srv/tts/outbox"

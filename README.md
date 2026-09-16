@@ -1,14 +1,14 @@
 # Audio Conversion
 
-Audio Conversion turns text and Markdown documents into speech from one shared Python
-package. It can be run manually on a Linux desktop or WSL, or continuously as a Linux
-systemd service. The service watches policy-specific inbox folders and preserves a
-speech-ready text file alongside each generated recording.
+Audio Conversion turns text and Markdown documents into speech as a persistent Linux
+service. It supports native Ubuntu and Ubuntu under WSL. The service watches
+policy-specific inbox folders and preserves a speech-ready text file alongside each
+generated recording.
 
 Runtime documents, recordings, logs, job data, configuration, and credentials live
 outside this source repository. All runtime paths are configurable.
 
-## Linux installation
+## Ubuntu and WSL installation
 
 Python 3.11 or newer and the `python3-venv` package are required. FFmpeg is recommended,
 and `espeak-ng` is required when the local speech engine is enabled. On Debian/Ubuntu:
@@ -31,10 +31,32 @@ When attached to a terminal, the installer asks for three absolute paths:
 2. **Inbox path** — defaults to `/srv/tts/inbox`.
 3. **Outbox path** — defaults to `/srv/tts/outbox`.
 
-The installer creates a virtual environment, installs the `tts` command, writes
+The installer creates a dedicated virtual environment, installs the `tts` command, writes
 `/etc/audioconversion/config.toml`, creates the runtime directories, installs and starts
-the systemd service, and enables it at boot. If automation is non-interactive, set
+the systemd service, and enables it at boot when systemd is available. There is one
+installation and one configuration path for both native Ubuntu and WSL. If automation
+is non-interactive, set
 `TTS_PROGRAM_DIR`, `TTS_INBOX_DIR`, and `TTS_OUTBOX_DIR` before running the installer.
+
+### Ubuntu under WSL
+
+Current WSL supports systemd. In Ubuntu, create or edit `/etc/wsl.conf`:
+
+```ini
+[boot]
+systemd=true
+```
+
+Then run `wsl --shutdown` from Windows PowerShell, reopen Ubuntu, and confirm
+`systemctl is-system-running` works before running `./install.sh`. The same installer,
+service unit, configuration, dashboard, watcher, and `tts` commands are used on native
+Ubuntu and WSL.
+
+If systemd is intentionally unavailable, installation still completes and prints a
+foreground command. Run `tts service run` in a long-lived WSL terminal. Automatic start
+on boot, `tts service start/stop/restart`, and systemd status naturally require systemd.
+Keep the program virtual environment and SQLite state in the WSL Linux filesystem rather
+than under `/mnt/c`; inbox/outbox paths may point to mounted Windows storage when needed.
 
 The three inbox policies are:
 
@@ -88,9 +110,10 @@ tts service stop
 tts service restart
 ```
 
-## Manual conversion
+## On-demand conversion through the installed service package
 
-The standalone CLI and service use the same processing pipeline and configuration:
+On-demand commands and watched-directory jobs use the same installed processing pipeline
+and system configuration:
 
 ```bash
 tts convert lecture.txt
@@ -141,8 +164,8 @@ python -m unittest -q test_tts_v3.py
 ```
 
 The preserved single-file converter remains available while its mature audio assembly
-and cache behavior is incorporated into the package incrementally. New standalone and
-service development should use the package and `tts` command.
+and cache behavior is incorporated into the package incrementally. New development
+should use the package and `tts` command.
 
 ## Unattended processing and recovery
 
