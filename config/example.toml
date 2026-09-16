@@ -1,0 +1,54 @@
+# The installer writes /etc/audioconversion/config.toml from this server template.
+# Never put secrets in this file or commit a live configuration.
+[paths]
+inbox = "/srv/tts/inbox"
+outbox = "/srv/tts/outbox"
+processed = "/srv/tts/processed"
+archive = "/srv/tts/archive"
+failed = "/srv/tts/failed"
+state = "/var/lib/audioconversion"
+logs = "/var/log/audioconversion"
+
+[processing]
+mode = "hybrid"
+# Retries after the initial attempt (2 means at most 3 total attempts).
+max_retries = 2
+retry_initial_seconds = 2
+retry_max_seconds = 30
+
+[llm]
+preferred = "local"
+fallback = "none"
+[llm.local]
+provider = "ollama"
+endpoint = "http://127.0.0.1:11434"
+model = "MODEL_NAME"
+[llm.cloud]
+provider = "none"
+model = ""
+
+[tts]
+preferred = "cloud"
+fallback = "local"
+[tts.local]
+provider = "espeak-ng"
+voice = "default"
+# Physical NVIDIA index, full GPU UUID, or "auto". Ignored by CPU-only providers.
+gpu = "auto"
+# Model-backed providers unload after this idle period; 0 keeps them resident.
+idle_timeout_seconds = 600
+[tts.cloud]
+provider = "openai"
+model = "gpt-4o-mini-tts"
+voice = "cedar"
+
+[output]
+format = "mp3"
+
+[watcher]
+poll_interval_seconds = 2
+stability_interval_seconds = 2
+stability_checks = 3
+
+[cache]
+enabled = true

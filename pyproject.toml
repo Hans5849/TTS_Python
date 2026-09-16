@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audioconversion"
+version = "4.0.0a1"
+description = "Privacy-aware, reusable document-to-speech pipeline"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+openai = ["openai>=1"]
+test = ["pytest>=8"]
+
+[project.scripts]
+tts = "audioconversion.cli:main"
+audioconversion = "audioconversion.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
