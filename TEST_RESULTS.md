@@ -11,7 +11,7 @@ python -m pytest -q
 Run the preserved audio-pipeline regression tests:
 
 ```bash
-python -m unittest -q test_legacy.py
+python -m unittest -q test_tts_v3.py
 ```
 
 The optional sample-document checks run only when sanitized `*REBUILT.txt` fixtures are

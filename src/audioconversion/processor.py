@@ -18,6 +18,8 @@ class ConversionResult:
     speech_ready: Path
     audio: Path
     digest: str
+    provider: str
+    model: str
 
 
 class Processor:
@@ -55,14 +57,23 @@ class Processor:
         fd, temporary = tempfile.mkstemp(prefix=f".{stem}-", suffix=audio_path.suffix, dir=audio_path.parent)
         os.close(fd)
         temp_path = Path(temporary)
+        selected_provider = "unknown"
+        selected_model = ""
         try:
-            execute_with_fallback(engines, lambda engine: engine.synthesize(speech, temp_path), self.logger)
+            def synthesize(engine):
+                nonlocal selected_provider, selected_model
+                selected_provider = next((name for name, value in self.engines.items() if value is engine),
+                                         type(engine).__name__)
+                selected_model = str(getattr(engine, "model", getattr(getattr(engine, "engine", None), "model", "")))
+                return engine.synthesize(speech, temp_path)
+
+            execute_with_fallback(engines, synthesize, self.logger)
             if not temp_path.is_file() or temp_path.stat().st_size == 0:
                 raise RuntimeError("TTS provider produced no audio")
             os.replace(temp_path, audio_path)
         finally:
             temp_path.unlink(missing_ok=True)
-        return ConversionResult(source, speech_path, audio_path, digest)
+        return ConversionResult(source, speech_path, audio_path, digest, selected_provider, selected_model)
 
     @staticmethod
     def _atomic_text(path: Path, text: str) -> None:

@@ -11,6 +11,22 @@ SERVICE_USER=$(sed -n '2p' /etc/audioconversion/install.conf)
 SERVICE_GROUP=$(sed -n '3p' /etc/audioconversion/install.conf)
 [ -d "$PROGRAM_DIR" ] || { echo "Installed program directory is missing: $PROGRAM_DIR" >&2; exit 1; }
 
+WAS_ACTIVE=0
+if systemctl is-active --quiet audioconversion.service; then
+    WAS_ACTIVE=1
+    systemctl stop audioconversion.service
+fi
+restore_service() {
+    result=$?
+    trap - EXIT HUP INT TERM
+    if [ "$WAS_ACTIVE" -eq 1 ] && ! systemctl is-active --quiet audioconversion.service; then
+        echo "Restoring previously active service..." >&2
+        systemctl start audioconversion.service || true
+    fi
+    exit "$result"
+}
+trap restore_service EXIT HUP INT TERM
+
 if [ -d "$PROGRAM_DIR/.git" ]; then
     git -C "$PROGRAM_DIR" pull --ff-only
 else
@@ -25,5 +41,8 @@ sed -e "s|@PROGRAM_DIR@|$PROGRAM_DIR|g" -e "s|@SERVICE_USER@|$SERVICE_USER|g" \
     -e "s|@SERVICE_GROUP@|$SERVICE_GROUP|g" "$PROGRAM_DIR/systemd/audioconversion.service" \
     > /etc/systemd/system/audioconversion.service
 systemctl daemon-reload
-systemctl restart audioconversion.service
-echo "Update complete. Run: tts dashboard"
+if [ "$WAS_ACTIVE" -eq 1 ]; then
+    systemctl start audioconversion.service
+fi
+trap - EXIT HUP INT TERM
+echo "Update complete. Configuration and runtime data were preserved. Run: tts dashboard"

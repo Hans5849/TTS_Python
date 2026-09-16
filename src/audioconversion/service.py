@@ -3,7 +3,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from .config import load_config
 from .database import JobStore
-from .factory import build_processor
+from .factory import build_runtime
 from .watcher import Watcher
 
 
@@ -15,4 +15,11 @@ def run(config_path=None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
                         handlers=[handler, logging.StreamHandler()])
     store = JobStore(config.paths.state / "jobs.sqlite3")
-    Watcher(config, build_processor(config), store).run()
+    recovered = store.recover_interrupted()
+    if recovered:
+        logging.getLogger("audioconversion.service").warning("recovered %d interrupted job(s)", recovered)
+    processor, lifecycle = build_runtime(config)
+    try:
+        Watcher(config, processor, store).run(idle_callback=lifecycle.unload_idle)
+    finally:
+        lifecycle.shutdown()

@@ -12,6 +12,7 @@ from .database import JobStore
 from .factory import build_processor
 from .service import run
 from .status import dashboard, gpu_status, recent_logs
+from .diagnostics import run_diagnostics
 
 
 def parser() -> argparse.ArgumentParser:
@@ -24,16 +25,20 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("status")
     commands.add_parser("dashboard")
     commands.add_parser("queue")
-    commands.add_parser("jobs")
+    jobs = commands.add_parser("jobs")
+    jobs.add_argument("state", nargs="?", choices=["waiting", "queued", "processing", "retry_wait",
+                                                       "completed", "failed", "cancelled"])
     config = commands.add_parser("config")
     config.add_argument("action", choices=["show", "path", "validate"])
-    for name in ("engines", "voices", "models", "logs", "errors"):
+    for name in ("engines", "voices", "models", "logs", "errors", "gpu", "doctor"):
         commands.add_parser(name)
     service = commands.add_parser("service")
     service.add_argument("action", choices=["run", "status", "start", "stop", "restart"])
     retry = commands.add_parser("retry")
-    retry.add_argument("job_id")
-    commands.add_parser("reset")
+    retry.add_argument("job_or_source", nargs="?")
+    retry.add_argument("--failed", action="store_true")
+    reset = commands.add_parser("reset")
+    reset.add_argument("--completed", action="store_true")
     return root
 
 
@@ -45,10 +50,10 @@ def _jsonable(value):
     return value
 
 
-def _retry(store: JobStore, config, job_id: str) -> Path:
-    row = store.get(job_id)
+def _retry(store: JobStore, config, job_or_source: str) -> Path:
+    row = store.find(job_or_source)
     if row is None or row["status"] != "failed":
-        raise ValueError(f"failed job not found: {job_id}")
+        raise ValueError(f"failed job not found: {job_or_source}")
     failed_path = config.paths.failed / row["policy"] / Path(row["source"]).name
     if not failed_path.is_file():
         raise ValueError(f"failed source is no longer present: {failed_path}")
@@ -57,7 +62,7 @@ def _retry(store: JobStore, config, job_id: str) -> Path:
     if destination.exists():
         raise ValueError(f"inbox destination already exists: {destination}")
     shutil.move(failed_path, destination)
-    store.update(job_id, "retried")
+    store.update(row["id"], "cancelled", error="requeued by operator")
     return destination
 
 
@@ -87,7 +92,7 @@ def _interactive_dashboard(config, store: JobStore) -> None:
         elif choice == "2":
             print("\n" + recent_logs(config))
         elif choice == "3":
-            print("\n" + gpu_status())
+            print("\n" + gpu_status(config))
         elif choice == "4":
             failed = store.failed()
             if not failed:
@@ -134,8 +139,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "dashboard" and sys.stdin.isatty() and sys.stdout.isatty():
                 _interactive_dashboard(config, store)
         elif args.command in {"queue", "jobs"}:
-            for job in store.list():
-                print(f"{job['id']}  {job['status']:<10} {job['policy']:<7} {job['source']}")
+            state = getattr(args, "state", None)
+            for job in store.list(status=state):
+                print(f"{job['id']}  {job['status']:<10} tries={job['attempts']} "
+                      f"{job['policy']:<7} {job['source']} {job['error'] or ''}")
         elif args.command in {"engines", "voices", "models"}:
             print(json.dumps(_jsonable({"llm": asdict(config.llm), "tts": asdict(config.tts)}), indent=2))
         elif args.command == "logs":
@@ -144,9 +151,27 @@ def main(argv: list[str] | None = None) -> int:
             for row in store.failed():
                 print(f"{row['id']} {row['updated_at']} {row['source']}\n  {row['error'] or 'unknown error'}")
         elif args.command == "retry":
-            print(f"Queued: {_retry(store, config, args.job_id)}")
+            if args.failed:
+                failures = list(store.failed())
+                for row in failures:
+                    print(f"Queued: {_retry(store, config, row['id'])}")
+                print(f"Requeued {len(failures)} failed job(s).")
+            elif args.job_or_source:
+                print(f"Queued: {_retry(store, config, args.job_or_source)}")
+            else:
+                raise ValueError("provide a job/source or use --failed")
         elif args.command == "reset":
-            print(f"Cleared {_reset(store, config)} completed/failed job records and application logs.")
+            if args.completed:
+                print(f"Cleared {store.reset({'completed'})} completed job record(s).")
+            else:
+                print(f"Cleared {_reset(store, config)} completed/failed job records and application logs.")
+        elif args.command == "gpu":
+            print(gpu_status(config))
+        elif args.command == "doctor":
+            checks = run_diagnostics(config)
+            for check in checks:
+                print(f"{'PASS' if check.ok else 'FAIL'}  {check.message}")
+            return 0 if all(check.ok for check in checks) else 1
         elif args.command == "service":
             if args.action == "run":
                 run(path)

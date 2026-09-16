@@ -21,8 +21,8 @@ behavior. The test suite uses simulated speech responses and does not make paid
 API calls.
 
 ```bash
-python -m compileall -q audioconversion_legacy.py test_legacy.py
-python -m unittest -v test_legacy.py
+python -m compileall -q Audioconversion_generic_v3.py test_tts_v3.py
+python -m unittest -v test_tts_v3.py
 ```
 
 Before submitting a pull request, update the README for user-facing changes and

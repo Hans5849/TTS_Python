@@ -680,7 +680,7 @@ def paths_for(source: Path, args: argparse.Namespace) -> Paths:
     if final.is_symlink():
         raise TTSError(f"Refusing to replace a symlink output: {final}")
     final = final.resolve()
-    return Paths(base / f"{source.stem}_audio_cache", final, final.parent / f"{final.stem}_chapters")
+    return Paths(base / f"{source.stem}_audio_v3", final, final.parent / f"{final.stem}_chapters")
 
 
 def collision_check(sources: list[Path], layouts: list[Paths], args: argparse.Namespace) -> None:
@@ -718,7 +718,7 @@ def discover_files(script_dir: Path, args: argparse.Namespace) -> list[Path]:
             if path.name.lower().startswith(("readme", "requirements", "test_results")):
                 continue
             relative_parents = path.relative_to(directory).parts[:-1]
-            if any(p.startswith(".") or p.endswith(("_audio_parts", "_audio_cache", "_chapters"))
+            if any(p.startswith(".") or p.endswith(("_audio_parts", "_audio_v3", "_chapters"))
                    for p in relative_parents):
                 continue
             found[str(path.resolve())] = path.resolve()
@@ -1255,7 +1255,7 @@ def ensure_output_allowed(paths: Paths, args: argparse.Namespace, plan: Plan | N
             if candidate.is_file() and sha_file(candidate) == item.get("sha256"):
                 owned.add(str(candidate))
     if paths.final.exists() and str(paths.final) not in owned and not args.overwrite:
-        raise TTSError(f"Existing output is not owned by this Audioconversion job: {paths.final}. "
+        raise TTSError(f"Existing output is not owned by this V3 job: {paths.final}. "
                        "Use --output-dir for a new folder, or --overwrite to explicitly replace it.")
     if paths.final.exists() and not paths.final.is_file():
         raise TTSError(f"Output is not a regular file: {paths.final}")
@@ -1518,8 +1518,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Extra silence at request boundaries that begin a new section; internal pauses are model-controlled.")
     out = p.add_mutually_exclusive_group()
     out.add_argument("--output", help="Final MP3 path for one source only.")
-    out.add_argument("--output-dir", help="Directory for all outputs and per-source Audioconversion caches.")
-    p.add_argument("--overwrite", action="store_true", help="Allow replacing preexisting outputs not owned by Audioconversion (such as older MP3s).")
+    out.add_argument("--output-dir", help="Directory for all outputs and per-source V3 caches.")
+    p.add_argument("--overwrite", action="store_true", help="Allow replacing preexisting outputs not owned by V3 (such as V2 MP3s).")
     p.add_argument("--adopt-moved-cache", action="store_true", help="Explicitly transfer job ownership after moving the whole project.")
     p.add_argument("--restart", action="store_true", help="Regenerate requested chunks (paid) but do not delete caches first.")
     p.add_argument("--rebuild", action="store_true", help="Reassemble even when completed output matches; reuse valid cached chunks.")
@@ -1639,7 +1639,7 @@ def main(argv: list[str] | None = None) -> int:
     collision_check(sources, layouts, args)
     if not args.dry_run:
         dependency_check(args)
-        # Check every output BEFORE any API request, including collision with older finals.
+        # Check every output BEFORE any API request, including collision with V2 finals.
         for paths in layouts:
             ensure_output_allowed(paths, args)
     budget = TokenBudget(args)

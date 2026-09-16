@@ -4,9 +4,10 @@ from .llm.local import OllamaProvider
 from .processor import Processor
 from .tts.cloud import OpenAIEngine
 from .tts.local import EspeakEngine
+from .lifecycle import LifecycleManager, ManagedTTSEngine, ModelLifecycle
 
 
-def build_processor(config: AppConfig) -> Processor:
+def build_runtime(config: AppConfig) -> tuple[Processor, LifecycleManager]:
     llms = {}
     if config.llm.local.provider == "ollama":
         llms["local"] = OllamaProvider(config.llm.local.endpoint or "http://127.0.0.1:11434",
@@ -16,4 +17,14 @@ def build_processor(config: AppConfig) -> Processor:
         engines["local"] = EspeakEngine(voice=config.tts.local.voice)
     if config.tts.cloud.provider == "openai":
         engines["cloud"] = OpenAIEngine(config.tts.cloud.model, config.tts.cloud.voice)
-    return Processor(config, llms, engines)
+    lifecycle = LifecycleManager()
+    local = engines.get("local")
+    if local is not None and isinstance(local, ModelLifecycle):
+        managed = ManagedTTSEngine(local)
+        engines["local"] = managed
+        lifecycle.register(managed, config.tts.local.idle_timeout_seconds)
+    return Processor(config, llms, engines), lifecycle
+
+
+def build_processor(config: AppConfig) -> Processor:
+    return build_runtime(config)[0]

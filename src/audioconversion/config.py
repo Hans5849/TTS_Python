@@ -33,6 +33,8 @@ class ProviderConfig:
     model: str = ""
     voice: str = "default"
     endpoint: str = ""
+    idle_timeout_seconds: float = 0
+    gpu: str | int = "auto"
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,10 @@ class AppConfig:
     output_format: str = "mp3"
     watcher_interval: float = 2.0
     stability_seconds: float = 5.0
+    stability_checks: int = 3
+    max_retries: int = 2
+    retry_initial_seconds: float = 2.0
+    retry_max_seconds: float = 30.0
     cache_enabled: bool = True
 
     def validate(self) -> None:
@@ -64,10 +70,27 @@ class AppConfig:
                 raise ConfigError(f"invalid {name} routing policy")
         if self.watcher_interval <= 0 or self.stability_seconds < 0:
             raise ConfigError("watcher timings must be non-negative")
+        if self.stability_checks < 1:
+            raise ConfigError("watcher.stability_checks must be at least 1")
+        if self.max_retries < 0:
+            raise ConfigError("processing.max_retries cannot be negative")
+        if self.retry_initial_seconds < 0 or self.retry_max_seconds < self.retry_initial_seconds:
+            raise ConfigError("processing retry delays are invalid")
+        if self.tts.local.idle_timeout_seconds < 0:
+            raise ConfigError("tts.local.idle_timeout_seconds cannot be negative")
 
 
 def _provider(data: dict[str, Any]) -> ProviderConfig:
-    return ProviderConfig(**{k: str(v) for k, v in data.items() if k in ProviderConfig.__dataclass_fields__})
+    values = {k: v for k, v in data.items() if k in ProviderConfig.__dataclass_fields__}
+    for key in ("provider", "model", "voice", "endpoint"):
+        if key in values:
+            values[key] = str(values[key])
+    if "idle_timeout_seconds" in values:
+        values["idle_timeout_seconds"] = float(values["idle_timeout_seconds"])
+    gpu = values.get("gpu", "auto")
+    if not isinstance(gpu, (str, int)) or isinstance(gpu, bool):
+        raise ConfigError("tts.local.gpu must be 'auto', a physical index, or an NVIDIA GPU UUID")
+    return ProviderConfig(**values)
 
 
 def _route(data: dict[str, Any]) -> RouteConfig:
@@ -96,11 +119,16 @@ def load_config(path: Path | None = None, *, required: bool = False) -> AppConfi
     paths = PathsConfig(**{name: Path(paths_raw.get(name, getattr(defaults, name))).expanduser()
                            for name in PathsConfig.__dataclass_fields__})
     watcher = raw.get("watcher", {})
-    config = AppConfig(paths=paths, processing_mode=str(raw.get("processing", {}).get("mode", "hybrid")),
+    processing = raw.get("processing", {})
+    config = AppConfig(paths=paths, processing_mode=str(processing.get("mode", "hybrid")),
                        llm=_route(raw.get("llm", {})), tts=_route(raw.get("tts", {})),
                        output_format=str(raw.get("output", {}).get("format", "mp3")),
                        watcher_interval=float(watcher.get("poll_interval_seconds", 2)),
-                       stability_seconds=float(watcher.get("stability_seconds", 5)),
+                       stability_seconds=float(watcher.get("stability_interval_seconds", watcher.get("stability_seconds", 2))),
+                       stability_checks=int(watcher.get("stability_checks", 3)),
+                       max_retries=int(processing.get("max_retries", 2)),
+                       retry_initial_seconds=float(processing.get("retry_initial_seconds", 2)),
+                       retry_max_seconds=float(processing.get("retry_max_seconds", 30)),
                        cache_enabled=bool(raw.get("cache", {}).get("enabled", True)))
     config.validate()
     return config

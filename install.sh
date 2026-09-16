@@ -34,10 +34,19 @@ done
 [ "$PROGRAM_DIR" != "$SOURCE_DIR" ] || { echo "Program path must differ from the source checkout." >&2; exit 2; }
 
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required." >&2; exit 1; }
+python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 11))' || {
+    echo "Python 3.11 or newer is required." >&2; exit 1;
+}
 if ! python3 -m venv --help >/dev/null 2>&1; then
     echo "python3-venv is required (for Debian/Ubuntu: apt install python3-venv)." >&2
     exit 1
 fi
+command -v espeak-ng >/dev/null 2>&1 || {
+    echo "espeak-ng is required by the default local TTS configuration (apt install espeak-ng)." >&2; exit 1;
+}
+command -v ffmpeg >/dev/null 2>&1 || {
+    echo "ffmpeg is required for the default MP3 output (apt install ffmpeg)." >&2; exit 1;
+}
 
 RUNTIME_ROOT=$(dirname -- "$OUTBOX_DIR")
 PROCESSED_DIR=$RUNTIME_ROOT/processed
@@ -69,6 +78,9 @@ logs = "$LOG_DIR"
 
 [processing]
 mode = "hybrid"
+max_retries = 2
+retry_initial_seconds = 2
+retry_max_seconds = 30
 
 [llm]
 preferred = "local"
@@ -86,6 +98,8 @@ fallback = "local"
 [tts.local]
 provider = "espeak-ng"
 voice = "default"
+gpu = "auto"
+idle_timeout_seconds = 600
 [tts.cloud]
 provider = "openai"
 model = "gpt-4o-mini-tts"
@@ -95,7 +109,8 @@ voice = "cedar"
 format = "mp3"
 [watcher]
 poll_interval_seconds = 2
-stability_seconds = 5
+stability_interval_seconds = 2
+stability_checks = 3
 [cache]
 enabled = true
 EOF
